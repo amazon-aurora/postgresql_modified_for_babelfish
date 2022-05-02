@@ -18548,13 +18548,6 @@ getDependencies(Archive *fout)
 		else
 			/* normal case */
 			addObjectDependency(dobj, refdobj->dumpId);
-
-		/*
-		 * obtain dependencies b/w this CAST and the CASTS on which it depends
-		 */
-		if (dobj->objType == DO_CAST &&
-			dobj->catId.oid > (Oid) g_last_builtin_oid)
-			addCastDependencies(fout, dobj);
 	}
 
 	PQclear(res);
@@ -18562,63 +18555,6 @@ getDependencies(Archive *fout)
 	destroyPQExpBuffer(query);
 }
 
-/*
- * addCastDependencies --- adds required dependencies b/w casts
- */
-void
-addCastDependencies(Archive *fout, DumpableObject *dobj)
-{
-	PQExpBuffer query;
-	PGresult   *res;
-	int	   ntups,
-		   i;
-	FuncInfo   *funcInfo;
-	Oid	   funcOid,
-		   funcrettype,
-		   casttarget;
-	CastInfo   *castInfo;
-
-	funcOid = ((CastInfo *) dobj)->castfunc;
-	casttarget = ((CastInfo *) dobj)->casttarget;
-
-	funcInfo = findFuncByOid(funcOid);
-
-	/* skip if return data type of cast function matches with casttarget */
-	if (funcInfo == NULL || funcInfo->prorettype == casttarget)
-		return;
-	funcrettype = funcInfo->prorettype;
-
-	query = createPQExpBuffer();
-
-	/* get cast between return type of cast function to casttarget */
-	appendPQExpBuffer(query, "SELECT oid "
-			  "FROM pg_cast "
-			  "WHERE castsource = '%u'::pg_catalog.oid "
-			  "AND casttarget = '%u'::pg_catalog.oid",
-			  funcrettype, casttarget);
-
-	res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
-
-	ntups = PQntuples(res);
-
-	for (i = 0; i < ntups; i++)
-	{
-		Oid castOid = atooid(PQgetvalue(res, i, PQfnumber(res, "oid")));
-
-		/* Skip builtin casts */
-		if (castOid <= (Oid) g_last_builtin_oid)
-			continue;
-
-		castInfo = findCastByOid(castOid);
-
-		if (castInfo != NULL)
-			addObjectDependency(dobj, castInfo->dobj.dumpId);
-	}
-
-	PQclear(res);
-
-	destroyPQExpBuffer(query);
-}
 
 /*
  * createBoundaryObjects - create dummy DumpableObjects to represent

@@ -48,7 +48,6 @@ static int	numCatalogIds = 0;
 static DumpableObject **tblinfoindex;
 static DumpableObject **typinfoindex;
 static DumpableObject **funinfoindex;
-static DumpableObject **castinfoindex;
 static DumpableObject **oprinfoindex;
 static DumpableObject **collinfoindex;
 static DumpableObject **nspinfoindex;
@@ -57,7 +56,6 @@ static DumpableObject **pubinfoindex;
 static int	numTables;
 static int	numTypes;
 static int	numFuncs;
-static int	numCasts;
 static int	numOperators;
 static int	numCollations;
 static int	numNamespaces;
@@ -93,7 +91,6 @@ getSchemaData(Archive *fout, int *numTablesPtr)
 	TableInfo  *tblinfo;
 	TypeInfo   *typinfo;
 	FuncInfo   *funinfo;
-	CastInfo   *castinfo;
 	OprInfo    *oprinfo;
 	CollInfo   *collinfo;
 	NamespaceInfo *nspinfo;
@@ -104,6 +101,7 @@ getSchemaData(Archive *fout, int *numTablesPtr)
 	int			numInherits;
 	int			numRules;
 	int			numProcLangs;
+	int			numCasts;
 	int			numTransforms;
 	int			numAccessMethods;
 	int			numOpclasses;
@@ -205,8 +203,7 @@ getSchemaData(Archive *fout, int *numTablesPtr)
 	getConversions(fout, &numConversions);
 
 	pg_log_info("reading type casts");
-	castinfo = getCasts(fout, &numCasts);
-	castinfoindex = buildIndexArray(castinfo, numCasts, sizeof(CastInfo));
+	getCasts(fout, &numCasts);
 
 	pg_log_info("reading transforms");
 	getTransforms(fout, &numTransforms);
@@ -918,17 +915,6 @@ FuncInfo *
 findFuncByOid(Oid oid)
 {
 	return (FuncInfo *) findObjectByOid(oid, funinfoindex, numFuncs);
-}
-
-/*
- * findCastByOid
- *	  finds the entry (in castinfo) of the cast with the given oid
- *	  returns NULL if not found
- */
-CastInfo *
-findCastByOid(Oid oid)
-{
-	return (CastInfo *) findObjectByOid(oid, castinfoindex, numCasts);
 }
 
 /*
