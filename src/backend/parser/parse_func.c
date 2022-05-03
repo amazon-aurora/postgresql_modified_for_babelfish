@@ -679,7 +679,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 											   false);
 
 	/* perform the necessary typecasting of arguments */
-	if(sql_dialect == SQL_DIALECT_TSQL && make_fn_arguments_from_stored_proc_probin_hook != NULL)
+	if(make_fn_arguments_from_stored_proc_probin_hook != NULL)
 		(*make_fn_arguments_from_stored_proc_probin_hook)(pstate, fargs, actual_arg_types, declared_arg_types, funcid);
 	else
 		make_fn_arguments(pstate, fargs, actual_arg_types, declared_arg_types);
