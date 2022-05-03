@@ -8562,21 +8562,6 @@ getCasts(Archive *fout, int *numCasts)
 		/* Decide whether we want to dump it */
 		selectDumpableCast(&(castinfo[i]), fout);
 
-		/*
-		 * Do not dump following unused CASTS:
-		 * pg_catalog.bool -> sys.bpchar
-		 * pg_catalog.bool -> sys.varchar
-		 */
-		if (sTypeInfo && tTypeInfo &&
-				sTypeInfo->dobj.namespace &&
-				tTypeInfo->dobj.namespace &&
-				strcmp(sTypeInfo->dobj.namespace->dobj.name, "pg_catalog") == 0 &&
-				strcmp(tTypeInfo->dobj.namespace->dobj.name, "sys") == 0 &&
-				strcmp(sTypeInfo->dobj.name, "bool") == 0 &&
-				(strcmp(tTypeInfo->dobj.name, "bpchar") == 0 ||
-				 strcmp(tTypeInfo->dobj.name, "varchar") == 0))
-			castinfo[i].dobj.dump = DUMP_COMPONENT_NONE;
-
 		/* Casts do not currently have ACLs. */
 		castinfo[i].dobj.dump &= ~DUMP_COMPONENT_ACL;
 	}
