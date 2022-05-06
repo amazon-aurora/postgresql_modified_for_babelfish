@@ -988,6 +988,28 @@ repairDependencyLoop(DumpableObject **loop,
 		return;
 	}
 
+	/*
+	 * A multi-statement TVF will have dependency loop with it's
+	 * underlying table-type, which is right thing for DROP but
+	 * it doesn't produce the dependency ordering we need.
+	 * Break the loop by removing table-type's dependency on
+	 * TVF.
+	 */
+	if (nLoop == 2 &&
+		loop[0]->objType == DO_DUMMY_TYPE &&
+		loop[1]->objType == DO_FUNC)
+	{
+		removeObjectDependency(loop[0], loop[1]->dumpId);
+		return;
+	}
+	if (nLoop == 2 &&
+		loop[1]->objType == DO_DUMMY_TYPE &&
+		loop[0]->objType == DO_FUNC)
+	{
+		removeObjectDependency(loop[1], loop[0]->dumpId);
+		return;
+	}
+
 	/* View (including matview) and its ON SELECT rule */
 	if (nLoop == 2 &&
 		loop[0]->objType == DO_TABLE &&

@@ -11,8 +11,30 @@
  */
 #include "postgres_fe.h"
 
+#include "catalog/pg_class_d.h"
+#include "catalog/pg_proc_d.h"
+#include "catalog/pg_type_d.h"
 #include "dump_babel_utils.h"
+#include "pg_backup_db.h"
 #include "pg_dump.h"
+#include "pqexpbuffer.h"
+
+static char *
+get_language_name(Archive *fout, Oid langid)
+{
+	PQExpBuffer query;
+	PGresult   *res;
+	char	   *lanname;
+
+	query = createPQExpBuffer();
+	appendPQExpBuffer(query, "SELECT lanname FROM pg_language WHERE oid = %u", langid);
+	res = ExecuteSqlQueryForSingleRow(fout, query->data);
+	lanname = pg_strdup(PQgetvalue(res, 0, 0));
+	destroyPQExpBuffer(query);
+	PQclear(res);
+
+	return lanname;
+}
 
 /*
  * bbf_selectDumpableCast: Mark a cast as to be dumped or not
@@ -45,4 +67,110 @@ bbf_selectDumpableCast(CastInfo *cast)
 			(strcmp(tTypeInfo->dobj.name, "bpchar") == 0 ||
 			 strcmp(tTypeInfo->dobj.name, "varchar") == 0))
 		cast->dobj.dump = DUMP_COMPONENT_NONE;
+}
+
+/*
+ * bbf_fixTableTypeDependency:
+ * By default function gets dumped before the template table of T-SQL
+ * table type(one of the datatype of function's arguments) which is
+ * because there is no dependency between function and underlying
+ * template table. Which is fine in normal case but becomes problematic
+ * during restore. Fix this by adding function's dependency on 
+ * template table. 
+ */
+void
+bbf_fixTableTypeDependency(Archive *fout, DumpableObject *func, DumpableObject *tabletype)
+{
+	FuncInfo  *funcInfo = (FuncInfo *) func;
+	TypeInfo  *typeInfo = (TypeInfo *) tabletype;
+	TableInfo *tytable;
+
+	/* skip auto-generated array types and non-pltsql functions */
+	if (typeInfo->isArray ||
+		!OidIsValid(typeInfo->typrelid) ||
+		strcmp(get_language_name(fout, funcInfo->lang), "pltsql") != 0)
+		return;
+
+	tytable = findTableByOid(typeInfo->typrelid);
+
+	if (tytable == NULL)
+		return;
+
+	/* Add function's dependency on template table */
+	addObjectDependency(func, tytable->dobj.dumpId);
+}
+
+/*
+ * bbf_is_tsqltabletype:
+ * Returns true if given table is a template table for
+ * underlying T-SQL table-type, false otherwise.
+ */
+bool
+bbf_is_tsqltabletype(Archive *fout, const TableInfo *tbinfo)
+{
+	Oid			pg_type_oid;
+	PQExpBuffer query;
+	PGresult	*res;
+	int			ntups;
+
+	if(tbinfo->relkind != RELKIND_RELATION)
+		return false;
+
+	query = createPQExpBuffer();
+
+	/* get oid of table's row type */
+	appendPQExpBuffer(query,
+					  "SELECT reltype "
+					  "FROM pg_catalog.pg_class "
+					  "WHERE relkind = '%c' "
+					  "AND oid = '%u'::pg_catalog.oid;",
+					  RELKIND_RELATION, tbinfo->dobj.catId.oid);
+
+	res = ExecuteSqlQueryForSingleRow(fout, query->data);
+	pg_type_oid = atooid(PQgetvalue(res, 0, PQfnumber(res, "reltype")));
+
+	PQclear(res);
+	resetPQExpBuffer(query);
+
+	/* Check if there is a dependency entry in pg_depend from table to it's row type */
+	appendPQExpBuffer(query,
+					  "SELECT classid "
+					  "FROM pg_catalog.pg_depend "
+					  "WHERE deptype = 'i' "
+					  "AND objid = '%u'::pg_catalog.oid "
+					  "AND refobjid = '%u'::pg_catalog.oid "
+					  "AND refclassid = 'pg_catalog.pg_type'::pg_catalog.regclass;",
+					  tbinfo->dobj.catId.oid, pg_type_oid);
+
+	res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
+	ntups = PQntuples(res);
+
+	PQclear(res);
+	destroyPQExpBuffer(query);
+
+	return ntups != 0;
+}
+
+/*
+ * bbf_is_tsql_mstvf:
+ * Returns true if given function is T-SQL multi-statement
+ * table valued function (MS-TVF), false otherwise.
+ * A function is MS-TVF if it returns set (TABLE) and it's
+ * return type is composite type.
+ */
+bool
+bbf_is_tsql_mstvf(Archive *fout, FuncInfo *finfo, char prokind, bool proretset)
+{
+	TypeInfo *rettype;
+
+	if (prokind == PROKIND_PROCEDURE || !proretset)
+		return false;
+
+	rettype = findTypeByOid(finfo->prorettype);
+
+	if (rettype->typtype == TYPTYPE_COMPOSITE &&
+		strcmp(get_language_name(fout, finfo->lang), "pltsql") == 0)
+		return true;
+
+	return false;
 }
