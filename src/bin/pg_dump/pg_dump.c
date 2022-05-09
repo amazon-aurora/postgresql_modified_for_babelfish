@@ -12392,7 +12392,7 @@ dumpFunc(Archive *fout, const FuncInfo *finfo)
 
 	if (is_tsql_mstvf)
 		appendPQExpBufferStr(q,
-							 "SET babelfishpg_tsql.tsql_tabletype = TRUE;\n");
+							 "SET babelfishpg_tsql.restore_tsql_tabletype = TRUE;\n");
 
 	appendPQExpBuffer(delqry, "DROP %s %s.%s;\n",
 					  keyword,
@@ -12550,7 +12550,7 @@ dumpFunc(Archive *fout, const FuncInfo *finfo)
 
 	if (is_tsql_mstvf)
 		appendPQExpBufferStr(q,
-							 "RESET babelfishpg_tsql.tsql_tabletype;\n");
+							 "RESET babelfishpg_tsql.restore_tsql_tabletype;\n");
 
 	append_depends_on_extension(fout, q, &finfo->dobj,
 								"pg_catalog.pg_proc", keyword,
@@ -15961,7 +15961,7 @@ dumpTableSchema(Archive *fout, const TableInfo *tbinfo)
 
 		if (tsql_tabletype)
 			appendPQExpBufferStr(q,
-								 "SET babelfishpg_tsql.tsql_tabletype = TRUE;\n");
+								 "SET babelfishpg_tsql.restore_tsql_tabletype = TRUE;\n");
 
 		appendPQExpBuffer(q, "CREATE %s%s %s",
 						  tbinfo->relpersistence == RELPERSISTENCE_UNLOGGED ?
@@ -16186,7 +16186,7 @@ dumpTableSchema(Archive *fout, const TableInfo *tbinfo)
 
 		if (tsql_tabletype)
 			appendPQExpBufferStr(q,
-								 "RESET babelfishpg_tsql.tsql_tabletype;\n");
+								 "RESET babelfishpg_tsql.restore_tsql_tabletype;\n");
 
 		/* Materialized views can depend on extensions */
 		if (tbinfo->relkind == RELKIND_MATVIEW)
