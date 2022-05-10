@@ -71,15 +71,20 @@ bbf_selectDumpableCast(CastInfo *cast)
 
 /*
  * bbf_fixTableTypeDependency:
- * By default function gets dumped before the template table of T-SQL
- * table type(one of the datatype of function's arguments) which is
- * because there is no dependency between function and underlying
- * template table. Which is fine in normal case but becomes problematic
- * during restore. Fix this by adding function's dependency on 
- * template table. 
+ * Fixes following two types of dependency issues between T-SQL
+ * table-type and T-SQL MS-TVF/procedure:
+ * 1. T-SQL table-type has an INTERNAL dependency upon MS-TVF which
+ *    is right thing for drop but creates dependency loop during
+ *    pg_dump. Fix this by removing table-type's dependency on MS-TVF.
+ * 2. By default function gets dumped before the template table of T-SQL
+ *    table type(one of the datatype of function's arguments) which is
+ *    because there is no dependency between function and underlying
+ *    template table. Which is fine in normal case but becomes problematic
+ *    during restore. Fix this by adding function's dependency on
+ *    template table.
  */
 void
-bbf_fixTableTypeDependency(Archive *fout, DumpableObject *func, DumpableObject *tabletype)
+bbf_fixTableTypeDependency(Archive *fout, DumpableObject *func, DumpableObject *tabletype, char deptype)
 {
 	FuncInfo  *funcInfo = (FuncInfo *) func;
 	TypeInfo  *typeInfo = (TypeInfo *) tabletype;
@@ -96,17 +101,21 @@ bbf_fixTableTypeDependency(Archive *fout, DumpableObject *func, DumpableObject *
 	if (tytable == NULL)
 		return;
 
-	/* Add function's dependency on template table */
-	addObjectDependency(func, tytable->dobj.dumpId);
+	/* First case, so remove INTERNAL dependency between T-SQL table-type and MS-TVF */
+	if (deptype == 'i')
+		removeObjectDependency(tabletype, func->dumpId);
+	/* Second case */
+	else
+		addObjectDependency(func, tytable->dobj.dumpId);
 }
 
 /*
- * bbf_is_tsqltabletype:
+ * bbf_isTsqlTableType:
  * Returns true if given table is a template table for
  * underlying T-SQL table-type, false otherwise.
  */
 bool
-bbf_is_tsqltabletype(Archive *fout, const TableInfo *tbinfo)
+bbf_isTsqlTableType(Archive *fout, const TableInfo *tbinfo)
 {
 	Oid			pg_type_oid;
 	PQExpBuffer query;
@@ -152,14 +161,14 @@ bbf_is_tsqltabletype(Archive *fout, const TableInfo *tbinfo)
 }
 
 /*
- * bbf_is_tsql_mstvf:
+ * bbf_isTsqlMstvf:
  * Returns true if given function is T-SQL multi-statement
  * table valued function (MS-TVF), false otherwise.
  * A function is MS-TVF if it returns set (TABLE) and it's
  * return type is composite type.
  */
 bool
-bbf_is_tsql_mstvf(Archive *fout, FuncInfo *finfo, char prokind, bool proretset)
+bbf_isTsqlMstvf(Archive *fout, FuncInfo *finfo, char prokind, bool proretset)
 {
 	TypeInfo *rettype;
 

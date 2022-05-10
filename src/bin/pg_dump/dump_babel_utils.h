@@ -15,8 +15,8 @@
 #include "pg_dump.h"
 
 extern void bbf_selectDumpableCast(CastInfo *cast);
-extern void bbf_fixTableTypeDependency(Archive *fout, DumpableObject *func, DumpableObject *tabletype);
-extern bool bbf_is_tsqltabletype(Archive *fout, const TableInfo *tbinfo);
-extern bool bbf_is_tsql_mstvf(Archive *fout, FuncInfo *finfo, char prokind, bool proretset);
+extern void bbf_fixTableTypeDependency(Archive *fout, DumpableObject *func, DumpableObject *tabletype, char deptype);
+extern bool bbf_isTsqlTableType(Archive *fout, const TableInfo *tbinfo);
+extern bool bbf_isTsqlMstvf(Archive *fout, FuncInfo *finfo, char prokind, bool proretset);
 
 #endif

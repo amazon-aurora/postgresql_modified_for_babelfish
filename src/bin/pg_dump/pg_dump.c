@@ -12388,7 +12388,7 @@ dumpFunc(Archive *fout, const FuncInfo *finfo)
 	else
 		keyword = "FUNCTION";	/* works for window functions too */
 	
-	is_tsql_mstvf = bbf_is_tsql_mstvf(fout, finfo, prokind[0], proretset[0] == 't');
+	is_tsql_mstvf = bbf_isTsqlMstvf(fout, finfo, prokind[0], proretset[0] == 't');
 
 	if (is_tsql_mstvf)
 		appendPQExpBufferStr(q,
@@ -15905,7 +15905,7 @@ dumpTableSchema(Archive *fout, const TableInfo *tbinfo)
 		char	   *ftoptions = NULL;
 		char	   *srvname = NULL;
 		char	   *foreign = "";
-		bool	   tsql_tabletype = bbf_is_tsqltabletype(fout, tbinfo);
+		bool	   tsql_tabletype = bbf_isTsqlTableType(fout, tbinfo);
 
 		switch (tbinfo->relkind)
 		{
@@ -18583,10 +18583,12 @@ getDependencies(Archive *fout)
 			addObjectDependency(dobj, refdobj->dumpId);
 
 		/* Standalone T-SQL table-type as a function's argument or multi-statement TVF */
-		if (deptype == 'n' &&
-			dobj->objType == DO_FUNC &&
+		if (dobj->objType == DO_FUNC &&
 			refdobj->objType == DO_DUMMY_TYPE)
-			bbf_fixTableTypeDependency(fout, dobj, refdobj);
+			bbf_fixTableTypeDependency(fout, dobj, refdobj, deptype);
+		else if (dobj->objType == DO_DUMMY_TYPE &&
+				refdobj->objType == DO_FUNC)
+			bbf_fixTableTypeDependency(fout, refdobj, dobj, deptype);
 	}
 
 	PQclear(res);
