@@ -70,7 +70,7 @@ bbf_selectDumpableCast(CastInfo *cast)
 }
 
 /*
- * bbf_fixTableTypeDependency:
+ * fixTsqlTableTypeDependency:
  * Fixes following two types of dependency issues between T-SQL
  * table-type and T-SQL MS-TVF/procedure:
  * 1. T-SQL table-type has an INTERNAL dependency upon MS-TVF which
@@ -84,11 +84,28 @@ bbf_selectDumpableCast(CastInfo *cast)
  *    template table.
  */
 void
-bbf_fixTableTypeDependency(Archive *fout, DumpableObject *func, DumpableObject *tabletype, char deptype)
+fixTsqlTableTypeDependency(Archive *fout, DumpableObject *dobj, DumpableObject *refdobj, char deptype)
 {
-	FuncInfo  *funcInfo = (FuncInfo *) func;
-	TypeInfo  *typeInfo = (TypeInfo *) tabletype;
+	FuncInfo  *funcInfo;
+	TypeInfo  *typeInfo;
 	TableInfo *tytable;
+
+	if (deptype == 'n' &&
+		dobj->objType == DO_FUNC &&
+		refdobj->objType == DO_DUMMY_TYPE)
+	{
+		funcInfo = (FuncInfo *) dobj;
+		typeInfo = (TypeInfo *) refdobj;
+	}
+	else if (deptype == 'i' &&
+			dobj->objType == DO_DUMMY_TYPE &&
+			refdobj->objType == DO_FUNC)
+	{
+		funcInfo = (FuncInfo *) refdobj;
+		typeInfo = (TypeInfo *) dobj;
+	}
+	else
+		return;
 
 	/* skip auto-generated array types and non-pltsql functions */
 	if (typeInfo->isArray ||
@@ -103,19 +120,19 @@ bbf_fixTableTypeDependency(Archive *fout, DumpableObject *func, DumpableObject *
 
 	/* First case, so remove INTERNAL dependency between T-SQL table-type and MS-TVF */
 	if (deptype == 'i')
-		removeObjectDependency(tabletype, func->dumpId);
+		removeObjectDependency(refdobj, dobj->dumpId);
 	/* Second case */
 	else
-		addObjectDependency(func, tytable->dobj.dumpId);
+		addObjectDependency(dobj, tytable->dobj.dumpId);
 }
 
 /*
- * bbf_isTsqlTableType:
+ * isTsqlTableType:
  * Returns true if given table is a template table for
  * underlying T-SQL table-type, false otherwise.
  */
 bool
-bbf_isTsqlTableType(Archive *fout, const TableInfo *tbinfo)
+isTsqlTableType(Archive *fout, const TableInfo *tbinfo)
 {
 	Oid			pg_type_oid;
 	PQExpBuffer query;
@@ -161,14 +178,14 @@ bbf_isTsqlTableType(Archive *fout, const TableInfo *tbinfo)
 }
 
 /*
- * bbf_isTsqlMstvf:
+ * isTsqlMstvf:
  * Returns true if given function is T-SQL multi-statement
  * table valued function (MS-TVF), false otherwise.
  * A function is MS-TVF if it returns set (TABLE) and it's
  * return type is composite type.
  */
 bool
-bbf_isTsqlMstvf(Archive *fout, FuncInfo *finfo, char prokind, bool proretset)
+isTsqlMstvf(Archive *fout, const FuncInfo *finfo, char prokind, bool proretset)
 {
 	TypeInfo *rettype;
 
