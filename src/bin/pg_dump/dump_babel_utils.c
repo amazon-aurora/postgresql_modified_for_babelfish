@@ -20,7 +20,7 @@
 #include "pqexpbuffer.h"
 
 static char *
-get_language_name(Archive *fout, Oid langid)
+getLanguageName(Archive *fout, Oid langid)
 {
 	PQExpBuffer query;
 	PGresult   *res;
@@ -108,6 +108,7 @@ fixTsqlTableTypeDependency(Archive *fout, DumpableObject *dobj, DumpableObject *
 	FuncInfo  *funcInfo;
 	TypeInfo  *typeInfo;
 	TableInfo *tytable;
+	char	  *lanname;
 
 	if (!isBabelfishDatabase(fout))
 		return;
@@ -129,11 +130,17 @@ fixTsqlTableTypeDependency(Archive *fout, DumpableObject *dobj, DumpableObject *
 	else
 		return;
 
+	lanname = getLanguageName(fout, funcInfo->lang);
+
 	/* skip auto-generated array types and non-pltsql functions */
 	if (typeInfo->isArray ||
 		!OidIsValid(typeInfo->typrelid) ||
-		strcmp(get_language_name(fout, funcInfo->lang), "pltsql") != 0)
+		strcmp(lanname, "pltsql") != 0)
+	{
+		free(lanname);
 		return;
+	}
+	free(lanname);
 
 	tytable = findTableByOid(typeInfo->typrelid);
 
@@ -210,15 +217,21 @@ bool
 isTsqlMstvf(Archive *fout, const FuncInfo *finfo, char prokind, bool proretset)
 {
 	TypeInfo *rettype;
+	char	 *lanname;
 
 	if (!isBabelfishDatabase(fout) || prokind == PROKIND_PROCEDURE || !proretset)
 		return false;
 
 	rettype = findTypeByOid(finfo->prorettype);
+	lanname = getLanguageName(fout, finfo->lang);
 
 	if (rettype->typtype == TYPTYPE_COMPOSITE &&
-		strcmp(get_language_name(fout, finfo->lang), "pltsql") == 0)
+		strcmp(lanname, "pltsql") == 0)
+	{
+		free(lanname);
 		return true;
+	}
 
+	free(lanname);
 	return false;
 }
