@@ -12394,6 +12394,10 @@ dumpFunc(Archive *fout, const FuncInfo *finfo)
 		appendPQExpBufferStr(q,
 							 "SET babelfishpg_tsql.restore_tsql_tabletype = TRUE;\n");
 
+	if (strcmp(lanname, "pltsql") == 0)
+		appendPQExpBufferStr(q,
+							 "SET babelfishpg_tsql.dump_restore = TRUE;\n");
+
 	appendPQExpBuffer(delqry, "DROP %s %s.%s;\n",
 					  keyword,
 					  fmtId(finfo->dobj.namespace->dobj.name),
@@ -12547,6 +12551,10 @@ dumpFunc(Archive *fout, const FuncInfo *finfo)
 	}
 
 	appendPQExpBuffer(q, "\n    %s;\n", asPart->data);
+
+	if (strcmp(lanname, "pltsql") == 0)
+		appendPQExpBufferStr(q,
+							 "RESET babelfishpg_tsql.dump_restore;\n");
 
 	if (is_tsql_mstvf)
 		appendPQExpBufferStr(q,
