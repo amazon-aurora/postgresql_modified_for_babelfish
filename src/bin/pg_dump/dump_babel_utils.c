@@ -37,6 +37,31 @@ get_language_name(Archive *fout, Oid langid)
 }
 
 /*
+ * is_babelfish_database:
+ * returns true if current database has "babelfishpg_tsql"
+ * extension installed, false otherwise.
+ */
+static bool
+is_babelfish_database(Archive *fout)
+{
+	static bool *tsql_extension_installed = NULL;
+
+	/* query database only on first call and reuse the result */
+	if (!tsql_extension_installed)
+	{
+		PGresult *res;
+
+		tsql_extension_installed = (bool *) palloc(sizeof(bool));
+
+		res = ExecuteSqlQueryForSingleRow(fout, "SELECT extname FROM pg_extension WHERE extname = 'babelfishpg_tsql';");
+		*tsql_extension_installed = PQntuples(res) != 0;
+		PQclear(res);
+	}
+
+	return *tsql_extension_installed;
+}
+
+/*
  * bbf_selectDumpableCast: Mark a cast as to be dumped or not
  */
 void
@@ -90,6 +115,9 @@ fixTsqlTableTypeDependency(Archive *fout, DumpableObject *dobj, DumpableObject *
 	TypeInfo  *typeInfo;
 	TableInfo *tytable;
 
+	if (!is_babelfish_database(fout))
+		return;
+
 	if (deptype == 'n' &&
 		dobj->objType == DO_FUNC &&
 		refdobj->objType == DO_DUMMY_TYPE)
@@ -139,7 +167,7 @@ isTsqlTableType(Archive *fout, const TableInfo *tbinfo)
 	PGresult	*res;
 	int			ntups;
 
-	if(tbinfo->relkind != RELKIND_RELATION)
+	if(!is_babelfish_database(fout) || tbinfo->relkind != RELKIND_RELATION)
 		return false;
 
 	query = createPQExpBuffer();
@@ -189,7 +217,7 @@ isTsqlMstvf(Archive *fout, const FuncInfo *finfo, char prokind, bool proretset)
 {
 	TypeInfo *rettype;
 
-	if (prokind == PROKIND_PROCEDURE || !proretset)
+	if (!is_babelfish_database(fout) || prokind == PROKIND_PROCEDURE || !proretset)
 		return false;
 
 	rettype = findTypeByOid(finfo->prorettype);
