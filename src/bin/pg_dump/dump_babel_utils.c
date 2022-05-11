@@ -53,7 +53,7 @@ is_babelfish_database(Archive *fout)
 
 		tsql_extension_installed = (bool *) palloc(sizeof(bool));
 
-		res = ExecuteSqlQueryForSingleRow(fout, "SELECT extname FROM pg_extension WHERE extname = 'babelfishpg_tsql';");
+		res = ExecuteSqlQuery(fout, "SELECT extname FROM pg_extension WHERE extname = 'babelfishpg_tsql';", PGRES_TUPLES_OK);
 		*tsql_extension_installed = PQntuples(res) != 0;
 		PQclear(res);
 	}
