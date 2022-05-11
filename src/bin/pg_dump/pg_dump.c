@@ -18567,17 +18567,6 @@ getDependencies(Archive *fout)
 			dobj->objType == DO_TABLE &&
 			refdobj->objType == DO_TYPE)
 			addObjectDependency(refdobj, dobj->dumpId);
-		/*
-		 * T-SQL table-type's template table has implicit dependency upon
-		 * it; which is also right thing for DROP but it doesn't produce
-		 * the dependency ordering we need. So in this case also, we reverse
-		 * the direction of the dependency.
-		 */
-		else if (deptype == 'i' &&
-				 dobj->objType == DO_TABLE &&
-				 refdobj->objType == DO_DUMMY_TYPE &&
-				 !((TypeInfo *) refdobj)->isArray)
-			addObjectDependency(refdobj, dobj->dumpId);
 		else
 			/* normal case */
 			addObjectDependency(dobj, refdobj->dumpId);

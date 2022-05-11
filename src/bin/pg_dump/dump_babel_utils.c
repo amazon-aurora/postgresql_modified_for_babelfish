@@ -37,28 +37,21 @@ get_language_name(Archive *fout, Oid langid)
 }
 
 /*
- * is_babelfish_database:
+ * isBabelfishDatabase:
  * returns true if current database has "babelfishpg_tsql"
  * extension installed, false otherwise.
  */
 static bool
-is_babelfish_database(Archive *fout)
+isBabelfishDatabase(Archive *fout)
 {
-	static bool *tsql_extension_installed = NULL;
+	PGresult *res;
+	int		 ntups;
 
-	/* query database only on first call and reuse the result */
-	if (!tsql_extension_installed)
-	{
-		PGresult *res;
+	res = ExecuteSqlQuery(fout, "SELECT extname FROM pg_extension WHERE extname = 'babelfishpg_tsql';", PGRES_TUPLES_OK);
+	ntups = PQntuples(res);
+	PQclear(res);
 
-		tsql_extension_installed = (bool *) palloc(sizeof(bool));
-
-		res = ExecuteSqlQuery(fout, "SELECT extname FROM pg_extension WHERE extname = 'babelfishpg_tsql';", PGRES_TUPLES_OK);
-		*tsql_extension_installed = PQntuples(res) != 0;
-		PQclear(res);
-	}
-
-	return *tsql_extension_installed;
+	return ntups != 0;
 }
 
 /*
@@ -104,9 +97,10 @@ bbf_selectDumpableCast(CastInfo *cast)
  * 2. By default function gets dumped before the template table of T-SQL
  *    table type(one of the datatype of function's arguments) which is
  *    because there is no dependency between function and underlying
- *    template table. Which is fine in normal case but becomes problematic
- *    during restore. Fix this by adding function's dependency on
- *    template table.
+ *    template table. Ideally function should have a dependency upon table
+ *    instead of table-type but it is fine in normal case but becomes
+ *    problematic during restore. Fix this by adding function's dependency
+ *    on template table.
  */
 void
 fixTsqlTableTypeDependency(Archive *fout, DumpableObject *dobj, DumpableObject *refdobj, char deptype)
@@ -115,7 +109,7 @@ fixTsqlTableTypeDependency(Archive *fout, DumpableObject *dobj, DumpableObject *
 	TypeInfo  *typeInfo;
 	TableInfo *tytable;
 
-	if (!is_babelfish_database(fout))
+	if (!isBabelfishDatabase(fout))
 		return;
 
 	if (deptype == 'n' &&
@@ -148,7 +142,7 @@ fixTsqlTableTypeDependency(Archive *fout, DumpableObject *dobj, DumpableObject *
 
 	/* First case, so remove INTERNAL dependency between T-SQL table-type and MS-TVF */
 	if (deptype == 'i')
-		removeObjectDependency(refdobj, dobj->dumpId);
+		removeObjectDependency(dobj, refdobj->dumpId);
 	/* Second case */
 	else
 		addObjectDependency(dobj, tytable->dobj.dumpId);
@@ -167,7 +161,7 @@ isTsqlTableType(Archive *fout, const TableInfo *tbinfo)
 	PGresult	*res;
 	int			ntups;
 
-	if(!is_babelfish_database(fout) || tbinfo->relkind != RELKIND_RELATION)
+	if(!isBabelfishDatabase(fout) || tbinfo->relkind != RELKIND_RELATION)
 		return false;
 
 	query = createPQExpBuffer();
@@ -217,7 +211,7 @@ isTsqlMstvf(Archive *fout, const FuncInfo *finfo, char prokind, bool proretset)
 {
 	TypeInfo *rettype;
 
-	if (!is_babelfish_database(fout) || prokind == PROKIND_PROCEDURE || !proretset)
+	if (!isBabelfishDatabase(fout) || prokind == PROKIND_PROCEDURE || !proretset)
 		return false;
 
 	rettype = findTypeByOid(finfo->prorettype);
