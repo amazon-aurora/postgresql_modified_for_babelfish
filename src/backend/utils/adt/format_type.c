@@ -380,9 +380,27 @@ printTypmod(const char *typname, int32 typmod, Oid typmodout)
 	{
 		/* Use the type-specific typmodout procedure */
 		char	   *tmstr;
+		char	   *datetime2 = "sys.datetime2";
+		char	   *smalldatetime = "sys.smalldatetime";
 
 		tmstr = DatumGetCString(OidFunctionCall1(typmodout,
 												 Int32GetDatum(typmod)));
+
+		/* Remove "without time zone" string from T-SQL's
+		 * sys.datetime2 and sys.smalldatetime types.
+		 *
+		 * This special handling can be removed once
+		 * 1. those types use their own typmod in/out functions, and
+		 * 2. there are no user objects using the old
+		 *    typmod in/out functions, i.e., in PG15.
+		 */
+		if (strncmp(datetime2, typname, strlen(datetime2)) == 0 ||
+			strncmp(smalldatetime, typname, strlen(smalldatetime)) == 0)
+		{
+			char *substr = strstr(tmstr, " without time zone");
+			if (substr)
+				*substr = '\0';
+		}
 		res = psprintf("%s%s", typname, tmstr);
 	}
 

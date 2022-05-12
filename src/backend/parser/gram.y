@@ -64,6 +64,7 @@
 #include "utils/date.h"
 #include "utils/datetime.h"
 #include "utils/numeric.h"
+#include "utils/syscache.h" /* LANGNAME */
 #include "utils/xml.h"
 
 
@@ -12938,6 +12939,41 @@ GenericType:
 					$$ = makeTypeNameFromNameList(lcons(makeString($1), $2));
 					$$->typmods = $3;
 					$$->location = @1;
+				}
+			| type_function_name attrs opt_type_modifiers WITHOUT TIME ZONE
+				{
+					/*
+					 * This gram rule should only be allowed when we create
+					 * T-SQL objects from dumped PG SQLs.
+					 *
+					 * However, as it is not easy to set babelfishpg_tsql.dump_restore GUC
+					 * during pg_dump, we check the existence of pltsql language.
+					 *
+					 * Because we have another special handling in printTypmod(),
+					 * this rule can be removed in PG15.
+					 */
+					char *sys = "sys";
+					char *datetime2 = "datetime2";
+					char *smalldatetime = "smalldatetime";
+					HeapTuple langTup = SearchSysCache1(LANGNAME, PointerGetDatum("pltsql"));
+
+					$$ = makeTypeNameFromNameList(lcons(makeString($1), $2));
+					if (HeapTupleIsValid(langTup) &&
+						strncmp(strVal(linitial($$->names)), sys, strlen(sys)) == 0 &&
+						(strncmp(strVal(lsecond($$->names)), datetime2, strlen(datetime2)) == 0 ||
+							strncmp(strVal(lsecond($$->names)), smalldatetime, strlen(smalldatetime)) == 0))
+					{
+						$$->typmods = $3;
+						$$->location = @1;
+						ReleaseSysCache(langTup);
+					}
+					else
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+									errmsg("\"without time zone\" is only valid for sys.datetime2 and sys.smalldatetime"),
+									parser_errposition(@4)));
+					}
 				}
 		;
 
