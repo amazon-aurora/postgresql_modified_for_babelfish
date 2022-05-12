@@ -225,7 +225,39 @@ isTsqlMstvf(Archive *fout, const FuncInfo *finfo, char prokind, bool proretset)
 	rettype = findTypeByOid(finfo->prorettype);
 	lanname = getLanguageName(fout, finfo->lang);
 
-	if (rettype->typtype == TYPTYPE_COMPOSITE &&
+	if (rettype && lanname &&
+		rettype->typtype == TYPTYPE_COMPOSITE &&
+		strcmp(lanname, "pltsql") == 0)
+	{
+		free(lanname);
+		return true;
+	}
+
+	free(lanname);
+	return false;
+}
+
+/*
+ * isTsqlItvf:
+ * Returns true if given function is T-SQL inline table
+ * valued function (ITVF), false otherwise.
+ * A function is ITVF if it returns set (TABLE) but
+ * it's return type is not composite type.
+ */
+bool
+isTsqlItvf(Archive *fout, const FuncInfo *finfo, char prokind, bool proretset)
+{
+	TypeInfo *rettype;
+	char	 *lanname;
+
+	if (!isBabelfishDatabase(fout) || prokind == PROKIND_PROCEDURE || !proretset)
+		return false;
+
+	rettype = findTypeByOid(finfo->prorettype);
+	lanname = getLanguageName(fout, finfo->lang);
+
+	if (rettype && lanname &&
+		rettype->typtype != TYPTYPE_COMPOSITE &&
 		strcmp(lanname, "pltsql") == 0)
 	{
 		free(lanname);

@@ -18,5 +18,6 @@ extern void bbf_selectDumpableCast(CastInfo *cast);
 extern void fixTsqlTableTypeDependency(Archive *fout, DumpableObject *func, DumpableObject *tabletype, char deptype);
 extern bool isTsqlTableType(Archive *fout, const TableInfo *tbinfo);
 extern bool isTsqlMstvf(Archive *fout, const FuncInfo *finfo, char prokind, bool proretset);
+extern bool isTsqlItvf(Archive *fout, const FuncInfo *finfo, char prokind, bool proretset);
 
 #endif

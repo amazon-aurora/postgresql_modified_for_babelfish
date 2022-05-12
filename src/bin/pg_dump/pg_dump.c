@@ -12123,6 +12123,7 @@ dumpFunc(Archive *fout, const FuncInfo *finfo)
 	const char *keyword;
 	int			i;
 	bool		is_tsql_mstvf = false;
+	bool		is_tsql_itvf = false;
 
 	/* Skip if not to be dumped */
 	if (!finfo->dobj.dump || dopt->dataOnly)
@@ -12389,12 +12390,13 @@ dumpFunc(Archive *fout, const FuncInfo *finfo)
 		keyword = "FUNCTION";	/* works for window functions too */
 	
 	is_tsql_mstvf = isTsqlMstvf(fout, finfo, prokind[0], proretset[0] == 't');
+	is_tsql_itvf = isTsqlItvf(fout, finfo, prokind[0], proretset[0] == 't');
 
 	if (is_tsql_mstvf)
 		appendPQExpBufferStr(q,
 							 "SET babelfishpg_tsql.restore_tsql_tabletype = TRUE;\n");
 
-	if (strcmp(lanname, "pltsql") == 0)
+	if (is_tsql_itvf)
 		appendPQExpBufferStr(q,
 							 "SET babelfishpg_tsql.dump_restore = TRUE;\n");
 
@@ -12552,7 +12554,7 @@ dumpFunc(Archive *fout, const FuncInfo *finfo)
 
 	appendPQExpBuffer(q, "\n    %s;\n", asPart->data);
 
-	if (strcmp(lanname, "pltsql") == 0)
+	if (is_tsql_itvf)
 		appendPQExpBufferStr(q,
 							 "RESET babelfishpg_tsql.dump_restore;\n");
 
