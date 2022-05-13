@@ -207,63 +207,41 @@ isTsqlTableType(Archive *fout, const TableInfo *tbinfo)
 }
 
 /*
- * isTsqlMstvf:
- * Returns true if given function is T-SQL multi-statement
- * table valued function (MS-TVF), false otherwise.
- * A function is MS-TVF if it returns set (TABLE) and it's
- * return type is composite type.
+ * getTsqlTvfType:
+ * Returns one of the type of PL/tsql table valued function:
+ * 1. PLTSQL_TVFTYPE_NONE : not a PL/tsql table valued function.
+ * 2. PLTSQL_TVFTYPE_MSTVF: PL/tsql multi-statement table valued
+ *                          function. A function is MS-TVF if it
+ *                          returns set (TABLE) and return type
+ *                          is composite type.
+ * 3. PLTSQL_TVFTYPE_ITVF : PL/tsql inline table valued function.
+ *                          A function is ITVF if it returns set
+ *                          (TABLE) but return type is not composite
+ *                          type.
  */
-bool
-isTsqlMstvf(Archive *fout, const FuncInfo *finfo, char prokind, bool proretset)
+int
+getTsqlTvfType(Archive *fout, const FuncInfo *finfo, char prokind, bool proretset)
 {
 	TypeInfo *rettype;
 	char	 *lanname;
 
 	if (!isBabelfishDatabase(fout) || prokind == PROKIND_PROCEDURE || !proretset)
-		return false;
+		return PLTSQL_TVFTYPE_NONE;
 
 	rettype = findTypeByOid(finfo->prorettype);
 	lanname = getLanguageName(fout, finfo->lang);
 
 	if (rettype && lanname &&
-		rettype->typtype == TYPTYPE_COMPOSITE &&
 		strcmp(lanname, "pltsql") == 0)
 	{
 		free(lanname);
-		return true;
+
+		if (rettype->typtype == TYPTYPE_COMPOSITE)
+			return PLTSQL_TVFTYPE_MSTVF;
+		else
+			return PLTSQL_TVFTYPE_ITVF;
 	}
 
 	free(lanname);
-	return false;
-}
-
-/*
- * isTsqlItvf:
- * Returns true if given function is T-SQL inline table
- * valued function (ITVF), false otherwise.
- * A function is ITVF if it returns set (TABLE) but
- * it's return type is not composite type.
- */
-bool
-isTsqlItvf(Archive *fout, const FuncInfo *finfo, char prokind, bool proretset)
-{
-	TypeInfo *rettype;
-	char	 *lanname;
-
-	if (!isBabelfishDatabase(fout) || prokind == PROKIND_PROCEDURE || !proretset)
-		return false;
-
-	rettype = findTypeByOid(finfo->prorettype);
-	lanname = getLanguageName(fout, finfo->lang);
-
-	if (rettype && lanname &&
-		rettype->typtype != TYPTYPE_COMPOSITE &&
-		strcmp(lanname, "pltsql") == 0)
-	{
-		free(lanname);
-		return true;
-	}
-
-	free(lanname);
-	return false;
+	return PLTSQL_TVFTYPE_NONE;
 }

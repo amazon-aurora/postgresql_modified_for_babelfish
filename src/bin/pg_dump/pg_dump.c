@@ -12122,8 +12122,7 @@ dumpFunc(Archive *fout, const FuncInfo *finfo)
 	int			nconfigitems = 0;
 	const char *keyword;
 	int			i;
-	bool		is_tsql_mstvf = false;
-	bool		is_tsql_itvf = false;
+	int			pltsql_tvf_type;
 
 	/* Skip if not to be dumped */
 	if (!finfo->dobj.dump || dopt->dataOnly)
@@ -12389,16 +12388,21 @@ dumpFunc(Archive *fout, const FuncInfo *finfo)
 	else
 		keyword = "FUNCTION";	/* works for window functions too */
 	
-	is_tsql_mstvf = isTsqlMstvf(fout, finfo, prokind[0], proretset[0] == 't');
-	is_tsql_itvf = isTsqlItvf(fout, finfo, prokind[0], proretset[0] == 't');
+	pltsql_tvf_type = getTsqlTvfType(fout, finfo, prokind[0], proretset[0] == 't');
 
-	if (is_tsql_mstvf)
-		appendPQExpBufferStr(q,
+	switch (pltsql_tvf_type)
+	{
+		case PLTSQL_TVFTYPE_MSTVF:
+			appendPQExpBufferStr(q,
 							 "SET babelfishpg_tsql.restore_tsql_tabletype = TRUE;\n");
-
-	if (is_tsql_itvf)
-		appendPQExpBufferStr(q,
+			break;
+		case PLTSQL_TVFTYPE_ITVF:
+			appendPQExpBufferStr(q,
 							 "SET babelfishpg_tsql.dump_restore = TRUE;\n");
+			break;
+		default:
+			break;
+	}
 
 	appendPQExpBuffer(delqry, "DROP %s %s.%s;\n",
 					  keyword,
@@ -12554,13 +12558,19 @@ dumpFunc(Archive *fout, const FuncInfo *finfo)
 
 	appendPQExpBuffer(q, "\n    %s;\n", asPart->data);
 
-	if (is_tsql_itvf)
-		appendPQExpBufferStr(q,
-							 "RESET babelfishpg_tsql.dump_restore;\n");
-
-	if (is_tsql_mstvf)
-		appendPQExpBufferStr(q,
+	switch (pltsql_tvf_type)
+	{
+		case PLTSQL_TVFTYPE_MSTVF:
+			appendPQExpBufferStr(q,
 							 "RESET babelfishpg_tsql.restore_tsql_tabletype;\n");
+			break;
+		case PLTSQL_TVFTYPE_ITVF:
+			appendPQExpBufferStr(q,
+							 "RESET babelfishpg_tsql.dump_restore;\n");
+			break;
+		default:
+			break;
+	}
 
 	append_depends_on_extension(fout, q, &finfo->dobj,
 								"pg_catalog.pg_proc", keyword,
