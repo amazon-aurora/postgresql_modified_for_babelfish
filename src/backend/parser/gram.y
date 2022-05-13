@@ -12974,6 +12974,37 @@ GenericType:
 									parser_errposition(@4)));
 					}
 				}
+			| type_function_name attrs opt_type_modifiers WITH_LA TIME ZONE
+				{
+					/*
+					 * This gram rule should only be allowed when we restore
+					 * T-SQL objects from dumped PG SQLs.
+					 *
+					 * Because we have another special handling in printTypmod(),
+					 * this rule can be removed in PG15.
+					 */
+					if (!restore_tsql_datetime2)
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+									errmsg("syntax error at or near \"with\""),
+									parser_errposition(@4)));
+					}
+					$$ = makeTypeNameFromNameList(lcons(makeString($1), $2));
+					if (strcmp(strVal(linitial($$->names)), "sys") == 0 &&
+						strcmp(strVal(lsecond($$->names)), "datetimeoffset") == 0)
+					{
+						$$->typmods = $3;
+						$$->location = @1;
+					}
+					else
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+									errmsg("syntax error at or near \"with\""),
+									parser_errposition(@4)));
+					}
+				}
 		;
 
 opt_type_modifiers: '(' expr_list ')'
