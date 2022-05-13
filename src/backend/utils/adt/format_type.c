@@ -380,6 +380,7 @@ printTypmod(const char *typname, int32 typmod, Oid typmodout)
 	{
 		/* Use the type-specific typmodout procedure */
 		char	   *tmstr;
+		char	   *tzstr = " without time zone";
 
 		tmstr = DatumGetCString(OidFunctionCall1(typmodout,
 												 Int32GetDatum(typmod)));
@@ -395,9 +396,9 @@ printTypmod(const char *typname, int32 typmod, Oid typmodout)
 		if (strcmp("sys.datetime2", typname) == 0 ||
 			strcmp("sys.smalldatetime", typname) == 0)
 		{
-			char *substr = strstr(tmstr, " without time zone");
+			char *substr = strstr(tmstr, tzstr);
 			if (substr)
-				*substr = '\0';
+				memmove(substr, substr + strlen(tzstr), strlen(substr + strlen(tzstr)) + 1);
 		}
 		res = psprintf("%s%s", typname, tmstr);
 	}

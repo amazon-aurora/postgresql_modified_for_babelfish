@@ -12955,7 +12955,7 @@ GenericType:
 					{
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
-									errmsg("\"without time zone\" is only valid during restore"),
+									errmsg("syntax error at or near \"without\""),
 									parser_errposition(@4)));
 					}
 					$$ = makeTypeNameFromNameList(lcons(makeString($1), $2));
@@ -12970,7 +12970,7 @@ GenericType:
 					{
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
-									errmsg("\"without time zone\" is only valid for sys.datetime2 and sys.smalldatetime"),
+									errmsg("syntax error at or near \"without\""),
 									parser_errposition(@4)));
 					}
 				}
