@@ -13,6 +13,7 @@
 #define DUMP_BABEL_UTILS_H
 
 #include "pg_dump.h"
+#include "pqexpbuffer.h"
 
 /* PL/tsql table valued function types */
 #define PLTSQL_TVFTYPE_NONE  0
@@ -24,5 +25,6 @@ extern void bbf_selectDumpableCast(CastInfo *cast);
 extern void fixTsqlTableTypeDependency(Archive *fout, DumpableObject *func, DumpableObject *tabletype, char deptype);
 extern bool isTsqlTableType(Archive *fout, const TableInfo *tbinfo);
 extern int getTsqlTvfType(Archive *fout, const FuncInfo *finfo, char prokind, bool proretset);
+extern void setOrResetPltsqlFuncRestoreGUCs(Archive *fout, PQExpBuffer q, const FuncInfo *finfo, char prokind, bool proretset, bool is_set);
 
 #endif

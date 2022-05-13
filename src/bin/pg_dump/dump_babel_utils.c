@@ -245,3 +245,42 @@ getTsqlTvfType(Archive *fout, const FuncInfo *finfo, char prokind, bool proretse
 	free(lanname);
 	return PLTSQL_TVFTYPE_NONE;
 }
+
+/*
+ * setOrResetPltsqlFuncRestoreGUCs:
+ * sets/resets GUCs required to properly restore
+ * PL/tsql functions/procedures depending upon
+ * the value of is_set boolean.
+ */
+void
+setOrResetPltsqlFuncRestoreGUCs(Archive *fout, PQExpBuffer q, const FuncInfo *finfo, char prokind, bool proretset, bool is_set)
+{
+	int pltsql_tvf_type = getTsqlTvfType(fout, finfo, prokind, proretset);
+
+	/* GUCs required for PL/tsql TVFs */
+	switch (pltsql_tvf_type)
+	{
+		case PLTSQL_TVFTYPE_MSTVF:
+		{
+			if (is_set)
+				appendPQExpBufferStr(q,
+								 "SET babelfishpg_tsql.restore_tsql_tabletype = TRUE;\n");
+			else
+				appendPQExpBufferStr(q,
+								 "RESET babelfishpg_tsql.restore_tsql_tabletype;\n");
+			break;
+		}
+		case PLTSQL_TVFTYPE_ITVF:
+		{
+			if (is_set)
+				appendPQExpBufferStr(q,
+								 "SET babelfishpg_tsql.dump_restore = TRUE;\n");
+			else
+				appendPQExpBufferStr(q,
+								 "RESET babelfishpg_tsql.dump_restore;\n");
+			break;
+		}
+		default:
+			break;
+	}
+}
