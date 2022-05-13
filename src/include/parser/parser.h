@@ -92,6 +92,9 @@ extern bool pltsql_case_insensitive_identifiers;
 
 extern char* pltsql_server_collation_name;
 
+/* Dump and Restore */
+extern bool restore_tsql_datetime2;
+
 /* Primary entry point for the raw parsing functions */
 extern List *raw_parser(const char *str, RawParseMode mode);
 

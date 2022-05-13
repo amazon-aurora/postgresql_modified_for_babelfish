@@ -64,7 +64,6 @@
 #include "utils/date.h"
 #include "utils/datetime.h"
 #include "utils/numeric.h"
-#include "utils/syscache.h" /* LANGNAME */
 #include "utils/xml.h"
 
 
@@ -215,6 +214,9 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 rewrite_typmod_expr_hook_type rewrite_typmod_expr_hook = NULL;
 validate_numeric_typmods_hook_type validate_numeric_typmods_hook = NULL;
 check_recursive_cte_hook_type check_recursive_cte_hook = NULL;
+
+/* Dump and Restore */
+bool restore_tsql_datetime2 = false;
 %}
 
 %pure-parser
@@ -12943,29 +12945,26 @@ GenericType:
 			| type_function_name attrs opt_type_modifiers WITHOUT TIME ZONE
 				{
 					/*
-					 * This gram rule should only be allowed when we create
+					 * This gram rule should only be allowed when we restore
 					 * T-SQL objects from dumped PG SQLs.
-					 *
-					 * However, as it is not easy to set babelfishpg_tsql.dump_restore GUC
-					 * during pg_dump, we check the existence of pltsql language.
 					 *
 					 * Because we have another special handling in printTypmod(),
 					 * this rule can be removed in PG15.
 					 */
-					char *sys = "sys";
-					char *datetime2 = "datetime2";
-					char *smalldatetime = "smalldatetime";
-					HeapTuple langTup = SearchSysCache1(LANGNAME, PointerGetDatum("pltsql"));
-
+					if (!restore_tsql_datetime2)
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+									errmsg("\"without time zone\" is only valid during restore"),
+									parser_errposition(@4)));
+					}
 					$$ = makeTypeNameFromNameList(lcons(makeString($1), $2));
-					if (HeapTupleIsValid(langTup) &&
-						strncmp(strVal(linitial($$->names)), sys, strlen(sys)) == 0 &&
-						(strncmp(strVal(lsecond($$->names)), datetime2, strlen(datetime2)) == 0 ||
-							strncmp(strVal(lsecond($$->names)), smalldatetime, strlen(smalldatetime)) == 0))
+					if (strcmp(strVal(linitial($$->names)), "sys") == 0 &&
+						(strcmp(strVal(lsecond($$->names)), "datetime2") == 0 ||
+							strcmp(strVal(lsecond($$->names)), "smalldatetime") == 0))
 					{
 						$$->typmods = $3;
 						$$->location = @1;
-						ReleaseSysCache(langTup);
 					}
 					else
 					{

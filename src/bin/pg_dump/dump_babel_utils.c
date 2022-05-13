@@ -41,7 +41,7 @@ getLanguageName(Archive *fout, Oid langid)
  * returns true if current database has "babelfishpg_tsql"
  * extension installed, false otherwise.
  */
-static bool
+bool
 isBabelfishDatabase(Archive *fout)
 {
 	PGresult *res;

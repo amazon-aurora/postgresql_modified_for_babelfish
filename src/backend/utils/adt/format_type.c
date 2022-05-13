@@ -380,8 +380,6 @@ printTypmod(const char *typname, int32 typmod, Oid typmodout)
 	{
 		/* Use the type-specific typmodout procedure */
 		char	   *tmstr;
-		char	   *datetime2 = "sys.datetime2";
-		char	   *smalldatetime = "sys.smalldatetime";
 
 		tmstr = DatumGetCString(OidFunctionCall1(typmodout,
 												 Int32GetDatum(typmod)));
@@ -394,8 +392,8 @@ printTypmod(const char *typname, int32 typmod, Oid typmodout)
 		 * 2. there are no user objects using the old
 		 *    typmod in/out functions, i.e., in PG15.
 		 */
-		if (strncmp(datetime2, typname, strlen(datetime2)) == 0 ||
-			strncmp(smalldatetime, typname, strlen(smalldatetime)) == 0)
+		if (strcmp("sys.datetime2", typname) == 0 ||
+			strcmp("sys.smalldatetime", typname) == 0)
 		{
 			char *substr = strstr(tmstr, " without time zone");
 			if (substr)
