@@ -214,9 +214,6 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 rewrite_typmod_expr_hook_type rewrite_typmod_expr_hook = NULL;
 validate_numeric_typmods_hook_type validate_numeric_typmods_hook = NULL;
 check_recursive_cte_hook_type check_recursive_cte_hook = NULL;
-
-/* Dump and Restore */
-bool restore_tsql_datetime2 = false;
 %}
 
 %pure-parser
@@ -12951,7 +12948,8 @@ GenericType:
 					 * Because we have another special handling in printTypmod(),
 					 * this rule can be removed in PG15.
 					 */
-					if (!restore_tsql_datetime2)
+					const char *dump_restore = GetConfigOption("babelfishpg_tsql.dump_restore", true, false);
+					if (!dump_restore || strcmp(dump_restore, "on") != 0)
 					{
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
@@ -12983,7 +12981,8 @@ GenericType:
 					 * Because we have another special handling in printTypmod(),
 					 * this rule can be removed in PG15.
 					 */
-					if (!restore_tsql_datetime2)
+					const char *dump_restore = GetConfigOption("babelfishpg_tsql.dump_restore", true, false);
+					if (!dump_restore || strcmp(dump_restore, "on") != 0)
 					{
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),

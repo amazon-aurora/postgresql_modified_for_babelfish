@@ -10522,7 +10522,7 @@ dumpExtension(Archive *fout, const ExtensionInfo *extinfo)
 	qextname = pg_strdup(fmtId(extinfo->dobj.name));
 
 	if (strstr(qextname, "babelfishpg_common") && isBabelfishDatabase(fout))
-		appendPQExpBuffer(q, "SET babelfishpg_tsql.restore_tsql_datetime2 = TRUE;\n");
+		appendPQExpBuffer(q, "SET babelfishpg_tsql.dump_restore = TRUE;\n");
 
 	appendPQExpBuffer(delq, "DROP EXTENSION %s;\n", qextname);
 

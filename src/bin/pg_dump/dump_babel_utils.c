@@ -270,16 +270,6 @@ setOrResetPltsqlFuncRestoreGUCs(Archive *fout, PQExpBuffer q, const FuncInfo *fi
 								 "RESET babelfishpg_tsql.restore_tsql_tabletype;\n");
 			break;
 		}
-		case PLTSQL_TVFTYPE_ITVF:
-		{
-			if (is_set)
-				appendPQExpBufferStr(q,
-								 "SET babelfishpg_tsql.dump_restore = TRUE;\n");
-			else
-				appendPQExpBufferStr(q,
-								 "RESET babelfishpg_tsql.dump_restore;\n");
-			break;
-		}
 		default:
 			break;
 	}
