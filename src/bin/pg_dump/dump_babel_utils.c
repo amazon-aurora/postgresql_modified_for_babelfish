@@ -88,6 +88,25 @@ bbf_selectDumpableCast(CastInfo *cast)
 }
 
 /*
+ * At MVU startup, some initialization steps are skipped
+ * because the sys schema does not exist.
+ * This function fills these gaps, such as creating some in-memory hash tables
+ * by explicitly loading extensions.
+ */
+void
+loadBabelfishExtensions(Archive *fout, const char *qnspname, PQExpBuffer buf)
+{
+	if (!isBabelfishDatabase(fout))
+		return;
+
+	if (strcmp(qnspname, "\"sys\"") != 0 && strcmp(qnspname, "sys") != 0)
+		return;
+
+	appendPQExpBuffer(buf, "LOAD 'babelfishpg_common';\n");
+	appendPQExpBuffer(buf, "LOAD 'babelfishpg_tsql';\n");
+}
+
+/*
  * fixTsqlTableTypeDependency:
  * Fixes following two types of dependency issues between T-SQL
  * table-type and T-SQL MS-TVF/procedure:

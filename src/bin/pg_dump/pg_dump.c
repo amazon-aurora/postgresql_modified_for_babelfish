@@ -10464,6 +10464,8 @@ dumpNamespace(Archive *fout, const NamespaceInfo *nspinfo)
 
 	appendPQExpBuffer(q, "CREATE SCHEMA %s;\n", qnspname);
 
+	loadBabelfishExtensions(fout, qnspname, q);
+
 	if (dopt->binary_upgrade)
 		binary_upgrade_extension_member(q, &nspinfo->dobj,
 										"SCHEMA", qnspname, NULL);
