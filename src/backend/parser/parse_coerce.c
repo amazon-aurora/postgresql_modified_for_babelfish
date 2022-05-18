@@ -1441,7 +1441,7 @@ select_common_type(ParseState *pstate, List *exprs, const char *context,
 			}
 			else if (ncategory != pcategory &&
 				sql_dialect != SQL_DIALECT_TSQL && /* T-SQL allows to select common datatype between different categories */
-				(!dump_restore || (dump_restore && strcmp(dump_restore, "on") != 0))) /* allow common datatype between different categories if dump_restore GUC is set */
+				(!dump_restore || (dump_restore && strcmp(dump_restore, "on") != 0))) /* allow common datatype between different categories while restoring babelfish database */
 			{
 				/*
 				 * both types in different categories? then not much hope...
@@ -3215,7 +3215,7 @@ find_coercion_pathway(Oid targetTypeId, Oid sourceTypeId,
 	 * check if rules (defiend with "assignment" property) is supported in T-SQL
 	 */
 	if ((sql_dialect == SQL_DIALECT_TSQL ||
-	    (dump_restore && strcmp(dump_restore, "on") == 0)) && /* execute hook if dialect is T-SQL or T-SQL's dump_restore GUC is set */
+	    (dump_restore && strcmp(dump_restore, "on") == 0)) && /* execute hook if dialect is T-SQL or while restoring babelfish database */
 	    find_coercion_pathway_hook != NULL)
 	{
 		result = find_coercion_pathway_hook(sourceTypeId, targetTypeId, ccontext, funcid);

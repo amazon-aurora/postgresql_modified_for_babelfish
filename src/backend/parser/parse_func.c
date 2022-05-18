@@ -1078,7 +1078,7 @@ func_select_candidate(int nargs,
 	 */
 	if (nunknowns == 0 &&
 	    (sql_dialect == SQL_DIALECT_TSQL ||
-	    (dump_restore && strcmp(dump_restore, "on") == 0)) && /* execute hook if dialect is T-SQL or T-SQL's dump_restore GUC is set */
+	    (dump_restore && strcmp(dump_restore, "on") == 0)) && /* execute hook if dialect is T-SQL or while restoring babelfish database */
 	    func_select_candidate_hook != NULL)
 	{
 		last_candidate = func_select_candidate_hook(nargs, input_typeids, candidates, false);
