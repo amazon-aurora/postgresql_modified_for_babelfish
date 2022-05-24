@@ -22,6 +22,7 @@
 
 
 extern void bbf_selectDumpableCast(CastInfo *cast);
+extern char *getModifiedDefaultExpr(Archive *fout, const AttrDefInfo attrDefInfo);
 extern bool isBabelfishDatabase(Archive *fout);
 extern void fixTsqlTableTypeDependency(Archive *fout, DumpableObject *func, DumpableObject *tabletype, char deptype);
 extern bool isTsqlTableType(Archive *fout, const TableInfo *tbinfo);
