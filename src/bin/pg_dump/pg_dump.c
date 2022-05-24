@@ -8925,6 +8925,9 @@ getTableAttrs(Archive *fout, TableInfo *tblinfo, int numTables)
 				attrdefs[j].adnum = adnum;
 				attrdefs[j].adef_expr = pg_strdup(PQgetvalue(res, j, 3));
 
+				/* Babelfish-specific logic for default expr */
+				attrdefs[j].adef_expr = getModifiedDefaultExpr(fout, attrdefs[j]);
+
 				attrdefs[j].dobj.name = pg_strdup(tbinfo->dobj.name);
 				attrdefs[j].dobj.namespace = tbinfo->dobj.namespace;
 

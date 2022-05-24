@@ -88,6 +88,41 @@ bbf_selectDumpableCast(CastInfo *cast)
 }
 
 /*
+ * T-SQL allows an empty/space-only string as a default constraint of
+ * NUMERIC column in CREATE TABLE statement. However, it will eventually
+ * throw an error when actual INSERT happens for the default value.
+ *
+ * To support this behavior, we use a function sys.babelfish_runtime_error(),
+ * which raises an error in execution time.
+ *
+ * However, pg_dump evaluates the runtime error function and replaces it with an
+ * error string that causes MVU failure during restore. Hence, we replace the error
+ * string by sys.babelfish_runtime_error() again.
+ */
+char *
+getModifiedDefaultExpr(Archive *fout, const AttrDefInfo attrDefInfo)
+{
+	char *source = attrDefInfo.adef_expr;
+	char *runtimeErrorStr = "'An empty or space-only string cannot be converted into numeric/decimal data type'";
+	char *atttypname;
+
+	if (!isBabelfishDatabase(fout))
+		return source;
+
+	if (!strstr(source, runtimeErrorStr))
+		return source;
+
+	if (attrDefInfo.adnum < 1)
+		return source;
+
+	atttypname = attrDefInfo.adtable->atttypnames[attrDefInfo.adnum - 1];
+	if (strstr(atttypname, "decimal") || strstr(atttypname, "numeric"))
+		return psprintf("(sys.babelfish_runtime_error(%s::text))::integer", runtimeErrorStr);
+
+	return source;
+}
+
+/*
  * fixTsqlTableTypeDependency:
  * Fixes following two types of dependency issues between T-SQL
  * table-type and T-SQL MS-TVF/procedure:
