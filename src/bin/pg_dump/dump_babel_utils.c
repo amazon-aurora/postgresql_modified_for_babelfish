@@ -99,27 +99,23 @@ bbf_selectDumpableCast(CastInfo *cast)
  * error string that causes MVU failure during restore. Hence, we replace the error
  * string by sys.babelfish_runtime_error() again.
  */
-char *
-getModifiedDefaultExpr(Archive *fout, const AttrDefInfo attrDefInfo)
+void
+fixTsqlDefaultExpr(Archive *fout, AttrDefInfo attrDefInfo)
 {
 	char *source = attrDefInfo.adef_expr;
 	char *runtimeErrorStr = "'An empty or space-only string cannot be converted into numeric/decimal data type'";
 	char *atttypname;
 
-	if (!isBabelfishDatabase(fout))
-		return source;
-
-	if (!strstr(source, runtimeErrorStr))
-		return source;
-
-	if (attrDefInfo.adnum < 1)
-		return source;
+	if (!isBabelfishDatabase(fout) || !strstr(source, runtimeErrorStr) || attrDefInfo.adnum < 1)
+		return;
 
 	atttypname = attrDefInfo.adtable->atttypnames[attrDefInfo.adnum - 1];
-	if (strstr(atttypname, "decimal") || strstr(atttypname, "numeric"))
-		return psprintf("(sys.babelfish_runtime_error(%s::text))::integer", runtimeErrorStr);
+	if (!strstr(atttypname, "decimal") && !strstr(atttypname, "numeric"))
+		return;
 
-	return source;
+	/* Replace the default expr to runtime error function */
+	free(source);
+	attrDefInfo.adef_expr = psprintf("(sys.babelfish_runtime_error(%s::text))::integer", runtimeErrorStr);
 }
 
 /*
