@@ -252,6 +252,9 @@ void fixAttoptionsBbfOriginalName(Archive *fout, char **attoptions)
 	PGresult *res;
 	PQExpBuffer q;
 
+	if (!isBabelfishDatabase(fout))
+		return;
+
 	q = createPQExpBuffer();
 
 	/*
