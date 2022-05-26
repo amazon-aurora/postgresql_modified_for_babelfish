@@ -251,11 +251,14 @@ void fixAttoptionsBbfOriginalName(Archive *fout, char **attoptions)
 {
 	PGresult *res;
 	PQExpBuffer q;
-	int temp_buf_len;
-	unsigned char *temp_buf;
 
 	q = createPQExpBuffer();
 
+	/*
+	 * As attoptions can be a list of options,
+	 * we will split options first, make them as an array, find an option starting with 'bbf_original_name',
+	 * enclose its value with single quotes, and aggregate all array elements into a single string.
+	 */
 	appendPQExpBuffer(q,
 		"SELECT substring(options, 2, length(options)-2) as new_options FROM ( "
 		"SELECT array_agg( "
