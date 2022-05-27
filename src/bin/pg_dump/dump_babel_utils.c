@@ -209,8 +209,8 @@ fixOprRegProc(Archive *fout,
 	if (!isBabelfishDatabase(fout) || fout->remoteVersion >= 140000)
 		return;
 
-	nsname = fmtId(oprinfo->dobj.namespace->dobj.name);
-	if (strcmp(nsname, "\"sys\"") != 0)
+	nsname = oprinfo->dobj.namespace->dobj.name;
+	if (strcmp(nsname, "sys") != 0)
 		return;
 
 	oprname = oprinfo->dobj.name;
