@@ -3393,6 +3393,9 @@ fireISTriggers(ModifyTableState *node)
 		case CMD_DELETE:
 			ret = ExecISDeleteTriggers(node->ps.state, resultRelInfo);
 			break;
+		case CMD_MERGE:
+			elog(ERROR, "Merge is unsupported in TSQL");
+			break;
 		default:
 			elog(ERROR, "unknown operation");
 			break;
@@ -3589,7 +3592,7 @@ ExecModifyTable(PlanState *pstate)
 	 * Otherwise, this should fire the IOT or recognize the IOT has already been
 	 * fired.
 	 */
-	if (node->fireISTriggers == IOT_NOT_FIRED)
+	if (node->fireISTriggers == IOT_NOT_FIRED && sql_dialect == SQL_DIALECT_TSQL)
 	{
 		node->fireISTriggers = fireISTriggers(node);
 	}
