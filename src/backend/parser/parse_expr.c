@@ -1476,8 +1476,8 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 	Node	   *last_srf = pstate->p_last_srf;
 	List	   *targs;
 	ListCell   *args;
-      char *schemaname;
-      char *functionname;
+	char	   *schemaname;
+	char	   *functionname;
 
 	/* Transform the list of arguments ... */
 	targs = NIL;
@@ -4679,6 +4679,7 @@ transformJsonSerializeExpr(ParseState *pstate, JsonSerializeExpr *expr)
 
 	return makeJsonConstructorExpr(pstate, JSCTOR_JSON_SERIALIZE, list_make1(arg),
 								   NULL, returning, false, false, expr->location);
+}
 
 // Expands checksum(*) to checksum(c1, c2, ...)
 List *
