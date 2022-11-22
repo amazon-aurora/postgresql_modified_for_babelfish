@@ -4786,8 +4786,8 @@ ExecISInsertTriggers(EState *estate, ResultRelInfo *relinfo, TransitionCaptureSt
     * query level, they'll go into new transition tables.
     */
     LocTriggerData.tg_oldtable = LocTriggerData.tg_newtable = NULL;
-	LocTriggerData.tg_oldtable = transition_capture->tcs_private->old_tuplestore;
-	LocTriggerData.tg_newtable = transition_capture->tcs_private->new_tuplestore;
+	LocTriggerData.tg_oldtable = transition_capture->tcs_private->old_del_tuplestore;
+	LocTriggerData.tg_newtable = transition_capture->tcs_private->new_ins_tuplestore;
     for (i = 0; i < trigdesc->numtriggers; i++)
     {
         Trigger    *trigger = &trigdesc->triggers[i];
@@ -6370,7 +6370,14 @@ InsteadofTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 		{
 			Tuplestorestate *old_tuplestore;
 
-			old_tuplestore = transition_capture->tcs_private->old_tuplestore;
+			if(event == TRIGGER_EVENT_DELETE)
+			{
+				old_tuplestore = transition_capture->tcs_private->old_del_tuplestore;
+			}
+			else if (event == TRIGGER_EVENT_UPDATE)
+			{
+				old_tuplestore = transition_capture->tcs_private->old_upd_tuplestore;
+			}
 
 			if (map != NULL)
 			{
@@ -6391,7 +6398,14 @@ InsteadofTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 		{
 			Tuplestorestate *new_tuplestore;
 
-			new_tuplestore = transition_capture->tcs_private->new_tuplestore;
+			if(event == TRIGGER_EVENT_INSERT)
+			{
+				new_tuplestore = transition_capture->tcs_private->new_ins_tuplestore;
+			}
+			else if (event == TRIGGER_EVENT_UPDATE)
+			{
+				new_tuplestore = transition_capture->tcs_private->new_upd_tuplestore;
+			}
 
 			if (original_insert_tuple != NULL)
 				tuplestore_puttupleslot(new_tuplestore,
