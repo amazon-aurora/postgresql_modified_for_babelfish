@@ -3938,7 +3938,7 @@ ExecModifyTable(PlanState *pstate)
 	 * 
 	 * IOT should be fired after execution is done
 	 */
-	if (node->fireISTriggers == IOT_NOT_FIRED)
+	if (node->fireISTriggers == IOT_NOT_FIRED && sql_dialect == SQL_DIALECT_TSQL)
 	{
 		node->fireISTriggers = fireISTriggers(node);
 	}
