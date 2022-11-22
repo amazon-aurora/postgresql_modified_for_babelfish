@@ -258,7 +258,6 @@ static bool check_wal_consistency_checking_deferred = false;
 
 guc_push_old_value_hook_type guc_push_old_value_hook = NULL;
 validate_set_config_function_hook_type validate_set_config_function_hook = NULL;
-guc_newval_hook_type guc_newval_hook = NULL;
 
 /*
  * Options for enum values defined in this module.
