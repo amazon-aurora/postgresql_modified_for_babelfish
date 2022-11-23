@@ -2068,6 +2068,7 @@ uniqueifyJsonbObject(JsonbValue *object, bool unique_keys, bool skip_nulls)
 		else
 			qsort_arg(object->val.object.pairs, object->val.object.nPairs, sizeof(JsonbPair),
 				  lengthCompareJsonbPair, &hasNonUniq);
+	}
 
 	if (hasNonUniq && unique_keys)
 		ereport(ERROR,
