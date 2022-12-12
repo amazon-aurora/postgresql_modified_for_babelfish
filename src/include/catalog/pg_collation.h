@@ -105,7 +105,8 @@ typedef void (*PreCreateCollation_hook_type) (char collprovider,
 											  int32 collencoding,
 											  const char **collcollate,  /* The pointer may be modified */
 											  const char **collctype,    /* The pointer may be modified */
-											  const char *collversion);
+											  const char **colliculocale,/* The pointer may be modified */
+											  const char **collversion); /* The pointer may be modified */
 extern PGDLLIMPORT PreCreateCollation_hook_type PreCreateCollation_hook;
 
 typedef const char * (*TranslateCollation_hook_type) (const char *collname, Oid collnamespace, int32 encoding);

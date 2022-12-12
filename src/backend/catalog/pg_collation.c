@@ -186,7 +186,8 @@ CollationCreate(const char *collname, Oid collnamespace,
 								   collencoding,
 								   &collcollate,
 								   &collctype,
-								   collversion);
+								   &colliculocale,
+								   &collversion);
 	}
 	
 	tupDesc = RelationGetDescr(rel);
