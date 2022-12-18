@@ -220,6 +220,8 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 	Oid			existing_constraint_oid = InvalidOid;
 	bool		existing_isInternal = false;
 	bool		is_composite_trigger = false;
+	char		*pg_trigger_schema_name;
+	char		*newtrigger_schema_name;
 
 	is_composite_trigger = IsCompositeTrigger(funcoid, stmt->funcname);
 
@@ -279,7 +281,7 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("\"%s\" is a partitioned table",
 								RelationGetRelationName(rel)),
-						 errdetail("Triggers on partitioned tables cannot have transition tables.")));
+						 errdetail("ROW triggers with transition tables are not supported on partitioned tables.")));
 		}
 	}
 	else if (rel->rd_rel->relkind == RELKIND_VIEW)
@@ -924,8 +926,11 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 			while (HeapTupleIsValid(tuple = systable_getnext(tgscan)))
 			{
 				Form_pg_trigger pg_trigger = (Form_pg_trigger) GETSTRUCT(tuple);
-
-				if (namestrcmp(&(pg_trigger->tgname), trigname) == 0)
+				pg_trigger_schema_name = get_namespace_name(get_rel_namespace(pg_trigger->tgrelid));
+				newtrigger_schema_name = get_namespace_name(get_rel_namespace(RelationGetRelid(rel)));
+				
+				if (namestrcmp(&(pg_trigger->tgname), trigname) == 0
+							&& strcasecmp(newtrigger_schema_name, pg_trigger_schema_name) == 0)
 					ereport(ERROR,
 							(errcode(ERRCODE_DUPLICATE_OBJECT),
 							errmsg("trigger \"%s\" already exists in the database",
@@ -4756,14 +4761,16 @@ GetAfterTriggersStoreSlot(AfterTriggersTableData *table,
 		MemoryContext oldcxt;
 
 		/*
-		 * We only need this slot only until AfterTriggerEndQuery, but making
-		 * it last till end-of-subxact is good enough.  It'll be freed by
-		 * AfterTriggerFreeQuery().
+		 * We need this slot only until AfterTriggerEndQuery, but making it
+		 * last till end-of-subxact is good enough.  It'll be freed by
+		 * AfterTriggerFreeQuery().  However, the passed-in tupdesc might have
+		 * a different lifespan, so we'd better make a copy of that.
 		 */
 		if (compositeTriggers.triggerLevel > 0 )
 			oldcxt = MemoryContextSwitchTo(compositeTriggers.curCxt);
 		else
 			oldcxt = MemoryContextSwitchTo(CurTransactionContext);
+		tupdesc = CreateTupleDescCopy(tupdesc);
 		table->storeslot = MakeSingleTupleTableSlot(tupdesc, &TTSOpsVirtual);
 		MemoryContextSwitchTo(oldcxt);
 	}
@@ -5098,7 +5105,12 @@ AfterTriggerFreeQuery(AfterTriggersQueryData *qs, bool free_tables)
 		if (ts)
 			tuplestore_end(ts);
 		if (table->storeslot)
-			ExecDropSingleTupleTableSlot(table->storeslot);
+		{
+			TupleTableSlot *slot = table->storeslot;
+
+			table->storeslot = NULL;
+			ExecDropSingleTupleTableSlot(slot);
+		}
 	}
 
 	/*

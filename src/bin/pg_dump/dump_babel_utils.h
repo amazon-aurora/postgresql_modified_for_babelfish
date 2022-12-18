@@ -21,6 +21,7 @@
 #define PLTSQL_TVFTYPE_ITVF  2
 
 
+extern char *getMinOid(Archive *fout);
 extern void bbf_selectDumpableCast(CastInfo *cast);
 extern void fixTsqlDefaultExpr(Archive *fout, AttrDefInfo *attrDefInfo);
 extern bool isBabelfishDatabase(Archive *fout);
@@ -30,5 +31,6 @@ extern bool isTsqlTableType(Archive *fout, const TableInfo *tbinfo);
 extern int getTsqlTvfType(Archive *fout, const FuncInfo *finfo, char prokind, bool proretset);
 extern void fixAttoptionsBbfOriginalName(Archive *fout, Oid relOid, const TableInfo *tbinfo, int idx);
 extern void setOrResetPltsqlFuncRestoreGUCs(Archive *fout, PQExpBuffer q, const FuncInfo *finfo, char prokind, bool proretset, bool is_set);
+extern void dumpBabelfishSpecificConfig(Archive *AH, const char *dbname, PQExpBuffer outbuf);
 
 #endif

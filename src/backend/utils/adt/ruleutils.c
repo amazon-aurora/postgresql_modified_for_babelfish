@@ -318,6 +318,8 @@ static const char *query_getviewrule = "SELECT * FROM pg_catalog.pg_rewrite WHER
 /* GUC parameters */
 bool		quote_all_identifiers = false;
 
+print_pltsql_function_arguments_hook_type print_pltsql_function_arguments_hook = NULL;
+
 
 /* ----------
  * Local functions
@@ -3170,6 +3172,11 @@ print_function_arguments(StringInfo buf, HeapTuple proctup,
 	List	   *argdefaults = NIL;
 	ListCell   *nextargdefault = NULL;
 	int			i;
+
+	if (is_pltsql_language_oid(proc->prolang) &&
+		print_pltsql_function_arguments_hook)
+		return print_pltsql_function_arguments_hook(buf, proctup,
+								print_table_args, print_defaults);
 
 	numargs = get_func_arg_info(proctup,
 								&argtypes, &argnames, &argmodes);
@@ -7404,7 +7411,8 @@ get_name_for_var_field(Var *var, int fieldno,
 
 	/*
 	 * If it's a RowExpr that was expanded from a whole-row Var, use the
-	 * column names attached to it.
+	 * column names attached to it.  (We could let get_expr_result_tupdesc()
+	 * handle this, but it's much cheaper to just pull out the name we need.)
 	 */
 	if (IsA(var, RowExpr))
 	{

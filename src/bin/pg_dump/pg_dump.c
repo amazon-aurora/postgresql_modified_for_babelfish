@@ -3349,6 +3349,10 @@ dumpDatabaseConfig(Archive *AH, PQExpBuffer outbuf,
 		}
 	}
 
+	/* Dump babelfish specific GUCs for which the user defined value should be persisted during upgrade */
+	if (isBabelfishDatabase(AH))
+		dumpBabelfishSpecificConfig(AH, dbname, outbuf);
+
 	/* Now look for role-and-database-specific options */
 	if (AH->remoteVersion >= 90000)
 	{
@@ -10581,7 +10585,12 @@ dumpExtension(Archive *fout, const ExtensionInfo *extinfo)
 	qextname = pg_strdup(fmtId(extinfo->dobj.name));
 
 	if (strstr(qextname, "babelfishpg_common") && isBabelfishDatabase(fout))
+	{
+		char *oid = getMinOid(fout);
 		appendPQExpBuffer(q, "SET babelfishpg_tsql.dump_restore = TRUE;\n");
+		appendPQExpBuffer(q, "SET babelfishpg_tsql.dump_restore_min_oid = %s;\n", oid);
+		free(oid);
+	}
 
 	appendPQExpBuffer(delq, "DROP EXTENSION %s;\n", qextname);
 

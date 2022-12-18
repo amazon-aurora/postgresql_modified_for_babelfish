@@ -91,6 +91,7 @@ pltsql_sequence_validate_increment_hook_type pltsql_sequence_validate_increment_
 pltsql_sequence_datatype_hook_type pltsql_sequence_datatype_hook = NULL;
 pltsql_nextval_hook_type pltsql_nextval_hook = NULL;
 pltsql_resetcache_hook_type pltsql_resetcache_hook = NULL;
+pltsql_setval_hook_type pltsql_setval_hook = NULL;
 
 static HTAB *seqhashtab = NULL; /* hash table for SeqTable items */
 
@@ -966,6 +967,9 @@ do_setval(Oid relid, int64 next, bool iscalled)
 	/* lock page' buffer and read tuple */
 	seq = read_seq_tuple(seqrel, &buf, &seqdatatuple);
 
+	if (pltsql_setval_hook)
+		next = (* pltsql_setval_hook) (relid, next, seq->last_value);
+
 	if ((next < minv) || (next > maxv))
 	{
 		char		bufv[100],
@@ -1391,7 +1395,13 @@ init_params(ParseState *pstate, List *options, bool for_identity,
 	/* AS type */
 	if (as_type != NULL)
 	{
-		Oid			newtypid = typenameTypeId(pstate, defGetTypeName(as_type));
+		/*
+		 * typenameTypeID is called after the hook to modify the schema name
+		 * internally used within the function when sequence is defined using a
+		 * user-defined data type
+		 */
+
+		Oid			newtypid = 0;
 
 		if (pltsql_sequence_datatype_hook)
 			(* pltsql_sequence_datatype_hook) (pstate,
@@ -1400,6 +1410,8 @@ init_params(ParseState *pstate, List *options, bool for_identity,
 											   as_type,
 											   &max_value,
 											   &min_value);
+
+		if(!newtypid) newtypid = typenameTypeId(pstate,defGetTypeName(as_type));
 
 		if (newtypid != INT2OID &&
 			newtypid != INT4OID &&
