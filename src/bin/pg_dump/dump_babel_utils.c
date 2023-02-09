@@ -523,20 +523,21 @@ updateExtConfigArray(Archive *fout, char ***extconfigarray, int nconfigitems)
 						 "ORDER BY relname;");
 
 	res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
-	Assert(PQntuples(res) == 2);
-	bbf_user_ext_tbl_oid = pg_strdup(PQgetvalue(res, 0, 0));
-	bbf_config_tbl_oid = atooid(PQgetvalue(res, 1, 0));
+
+	if(PQntuples(res) == 2)
+	{
+		bbf_user_ext_tbl_oid = PQgetvalue(res, 0, 0);
+		bbf_config_tbl_oid = atooid(PQgetvalue(res, 1, 0));
+
+		for (i = 0; i < nconfigitems; i++)
+		{
+			Oid configtbloid = atooid((*extconfigarray)[i]);
+
+			if (configtbloid == bbf_config_tbl_oid)
+				(*extconfigarray)[i] = pg_strdup(bbf_user_ext_tbl_oid);
+		}
+	}
 
 	PQclear(res);
 	resetPQExpBuffer(query);
-
-	for (i = 0; i < nconfigitems; i++)
-	{
-		Oid			configtbloid;
-
-		configtbloid = atooid((*extconfigarray)[i]);
-
-		if (configtbloid == bbf_config_tbl_oid)
-			(*extconfigarray)[i] = bbf_user_ext_tbl_oid;
-	}
 }
