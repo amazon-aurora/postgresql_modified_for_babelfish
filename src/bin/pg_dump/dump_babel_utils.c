@@ -16,9 +16,17 @@
 #include "catalog/pg_type_d.h"
 #include "common/logging.h"
 #include "dump_babel_utils.h"
+#include "fe_utils/string_utils.h"
 #include "pg_backup_db.h"
 #include "pg_dump.h"
 #include "pqexpbuffer.h"
+
+/*
+ * Macro for producing quoted, schema-qualified name of a dumpable object.
+ */
+#define fmtQualifiedDumpable(obj) \
+	fmtQualifiedId((obj)->dobj.namespace->dobj.name, \
+				   (obj)->dobj.name)
 
 char *
 getMinOid(Archive *fout)
@@ -540,4 +548,72 @@ updateExtConfigArray(Archive *fout, char ***extconfigarray, int nconfigitems)
 
 	PQclear(res);
 	resetPQExpBuffer(query);
+}
+
+/*
+ * fixCopyCommand:
+ * Fixes column list in a COPY command.
+ * isFrom decides whether we are copying FROM or TO.
+ */
+void
+fixCopyCommand(Archive *fout, PQExpBuffer copyBuf, TableInfo *tbinfo, bool isFrom)
+{
+	PQExpBuffer q;
+	bool	    needComma;
+	bool	    found;
+	int 	    i;
+
+	/* Proceed only if we are dealing with sys.babelfish_authid_login_ext table. */
+	if (!isBabelfishDatabase(fout) || tbinfo->dobj.namespace == NULL ||
+		pg_strcasecmp(tbinfo->dobj.namespace->dobj.name, "sys") != 0 ||
+		pg_strcasecmp(tbinfo->dobj.name, "babelfish_authid_login_ext") != 0)
+		return;
+
+	q = createPQExpBuffer();
+	appendPQExpBufferChar(q, '(');
+	needComma = false;
+	for (i = 0; i < tbinfo->numatts; i++)
+	{
+		if (tbinfo->attisdropped[i])
+			continue;
+		if (tbinfo->attgenerated[i])
+			continue;
+		if (needComma)
+			appendPQExpBufferStr(q, ", ");
+		appendPQExpBufferStr(q, fmtId(tbinfo->attnames[i]));
+		if (pg_strcasecmp(tbinfo->attnames[i], "orig_loginname") == 0)
+			found = true;
+		needComma = true;
+	}
+
+	/* orig_loginname column not found */
+	if (!found)
+	{
+		char *direction = NULL;
+
+		appendPQExpBufferStr(q, ", ");
+		/* Append orig_loginname column at the end in COPY FROM command */
+		if (isFrom)
+		{
+			appendPQExpBufferStr(q, fmtId("orig_loginname"));
+			direction = "FROM stdin;";
+		}
+		/*
+		 * Append rolname column in case of COPY TO command so that
+		 * orig_loginname column gets populated with same value as rolname column.
+		 */
+		else
+		{
+			appendPQExpBufferStr(q, fmtId("rolname"));
+			direction = "TO stdout;";
+		}
+		appendPQExpBufferChar(q, ')');
+
+		resetPQExpBuffer(copyBuf);
+		appendPQExpBuffer(copyBuf, "COPY %s %s %s;",
+						  fmtQualifiedDumpable(tbinfo),
+						  q->data,
+						  direction);
+	}
+	destroyPQExpBuffer(q);
 }

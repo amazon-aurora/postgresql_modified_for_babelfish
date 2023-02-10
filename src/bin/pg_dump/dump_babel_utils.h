@@ -33,5 +33,6 @@ extern void fixAttoptionsBbfOriginalName(Archive *fout, Oid relOid, const TableI
 extern void setOrResetPltsqlFuncRestoreGUCs(Archive *fout, PQExpBuffer q, const FuncInfo *finfo, char prokind, bool proretset, bool is_set);
 extern void dumpBabelfishSpecificConfig(Archive *AH, const char *dbname, PQExpBuffer outbuf);
 extern void updateExtConfigArray(Archive *fout, char ***extconfigarray, int nconfigitems);
+extern void fixCopyCommand(Archive *fout, PQExpBuffer copyBuf, TableInfo *tbinfo, bool isFrom);
 
 #endif

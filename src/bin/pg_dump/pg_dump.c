@@ -2016,6 +2016,7 @@ dumpTableData_copy(Archive *fout, const void *dcontext)
 						  fmtQualifiedDumpable(tbinfo),
 						  column_list);
 	}
+	fixCopyCommand(fout, q, tbinfo, false);
 	res = ExecuteSqlQuery(fout, q->data, PGRES_COPY_OUT);
 	PQclear(res);
 	destroyPQExpBuffer(clistBuf);
@@ -2132,6 +2133,7 @@ dumpTableData_insert(Archive *fout, const void *dcontext)
 				i;
 	int			rows_per_statement = dopt->dump_inserts;
 	int			rows_this_statement = 0;
+	bool		found = false;
 
 	/*
 	 * If we're going to emit INSERTs with column names, the most efficient
@@ -2155,7 +2157,23 @@ dumpTableData_insert(Archive *fout, const void *dcontext)
 			appendPQExpBufferStr(q, "NULL");
 		else
 			appendPQExpBufferStr(q, fmtId(tbinfo->attnames[i]));
+		if (pg_strcasecmp(tbinfo->attnames[i], "orig_loginname") == 0)
+			found = true;
 		attgenerated[nfields] = tbinfo->attgenerated[i];
+		nfields++;
+	}
+
+	/*
+	 * If we didn't find 'orig_loginname' column in sys.babelfish_authid_login_ext table
+	 * then append 'rolname' column in the query string so that 'orig_loginname' column
+	 * gets populated with the same value as 'rolname' column.
+	 */
+	if (!found && isBabelfishDatabase(fout) && tbinfo->dobj.namespace &&
+		pg_strcasecmp(tbinfo->dobj.namespace->dobj.name, "sys") == 0 &&
+		pg_strcasecmp(tbinfo->dobj.name, "babelfish_authid_login_ext") == 0)
+	{
+		appendPQExpBufferStr(q, ", ");
+		appendPQExpBufferStr(q, fmtId("rolname"));
 		nfields++;
 	}
 	/* Servers before 9.4 will complain about zero-column SELECT */
@@ -2222,6 +2240,19 @@ dumpTableData_insert(Archive *fout, const void *dcontext)
 							appendPQExpBufferStr(insertStmt, ", ");
 						appendPQExpBufferStr(insertStmt,
 											 fmtId(PQfname(res, field)));
+					}
+
+					/*
+					 * Replace 'rolname' column we added earlier with 'orig_loginname' in
+					 * insert statement's column list.
+					 */
+					if (!found && isBabelfishDatabase(fout) && tbinfo->dobj.namespace &&
+						pg_strcasecmp(tbinfo->dobj.namespace->dobj.name, "sys") == 0 &&
+						pg_strcasecmp(tbinfo->dobj.name, "babelfish_authid_login_ext") == 0)
+					{
+						insertStmt->len -= strlen(fmtId("rolname"));
+						insertStmt->data[insertStmt->len] = '\0';
+						appendPQExpBufferStr(insertStmt, fmtId("orig_loginname"));
 					}
 					appendPQExpBufferStr(insertStmt, ") ");
 				}
@@ -2440,6 +2471,8 @@ dumpTableData(Archive *fout, const TableDataInfo *tdinfo)
 						  copyFrom);
 		appendPQExpBuffer(copyBuf, "%s FROM stdin;\n",
 						  fmtCopyColumnList(tbinfo, clistBuf));
+
+		fixCopyCommand(fout, copyBuf, tbinfo, true);
 		copyStmt = copyBuf->data;
 	}
 	else
