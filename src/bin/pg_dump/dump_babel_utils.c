@@ -570,7 +570,6 @@ fixCopyCommand(Archive *fout, PQExpBuffer copyBuf, TableInfo *tbinfo, bool isFro
 		return;
 
 	q = createPQExpBuffer();
-	appendPQExpBufferChar(q, '(');
 	needComma = false;
 	for (i = 0; i < tbinfo->numatts; i++)
 	{
@@ -589,31 +588,29 @@ fixCopyCommand(Archive *fout, PQExpBuffer copyBuf, TableInfo *tbinfo, bool isFro
 	/* orig_loginname column not found */
 	if (!found)
 	{
-		char *direction = NULL;
-
+		resetPQExpBuffer(copyBuf);
 		appendPQExpBufferStr(q, ", ");
 		/* Append orig_loginname column at the end in COPY FROM command */
 		if (isFrom)
 		{
 			appendPQExpBufferStr(q, fmtId("orig_loginname"));
-			direction = "FROM stdin;";
+			appendPQExpBuffer(copyBuf, "COPY %s (%s) FROM stdin;",
+							  fmtQualifiedDumpable(tbinfo),
+							  q->data);
 		}
 		/*
 		 * Append rolname column in case of COPY TO command so that
 		 * orig_loginname column gets populated with same value as rolname column.
+		 * We can't specify a column twice in the COPY command so we are using SELECT
+		 * query in COPY.
 		 */
 		else
 		{
 			appendPQExpBufferStr(q, fmtId("rolname"));
-			direction = "TO stdout;";
+			appendPQExpBuffer(copyBuf, "COPY (SELECT %s FROM %s) TO stdout;",
+							  q->data,
+							  fmtQualifiedDumpable(tbinfo));
 		}
-		appendPQExpBufferChar(q, ')');
-
-		resetPQExpBuffer(copyBuf);
-		appendPQExpBuffer(copyBuf, "COPY %s %s %s;",
-						  fmtQualifiedDumpable(tbinfo),
-						  q->data,
-						  direction);
 	}
 	destroyPQExpBuffer(q);
 }
