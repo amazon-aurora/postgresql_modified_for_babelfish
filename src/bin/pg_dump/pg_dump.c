@@ -2134,6 +2134,9 @@ dumpTableData_insert(Archive *fout, const void *dcontext)
 	int			rows_per_statement = dopt->dump_inserts;
 	int			rows_this_statement = 0;
 	bool		found = false;
+	bool		is_babelfish_authid_login_ext = (isBabelfishDatabase(fout) && tbinfo->dobj.namespace &&
+							pg_strcasecmp(tbinfo->dobj.namespace->dobj.name, "sys") == 0 &&
+							pg_strcasecmp(tbinfo->dobj.name, "babelfish_authid_login_ext") == 0);
 
 	/*
 	 * If we're going to emit INSERTs with column names, the most efficient
@@ -2157,7 +2160,7 @@ dumpTableData_insert(Archive *fout, const void *dcontext)
 			appendPQExpBufferStr(q, "NULL");
 		else
 			appendPQExpBufferStr(q, fmtId(tbinfo->attnames[i]));
-		if (pg_strcasecmp(tbinfo->attnames[i], "orig_loginname") == 0)
+		if (is_babelfish_authid_login_ext && pg_strcasecmp(tbinfo->attnames[i], "orig_loginname") == 0)
 			found = true;
 		attgenerated[nfields] = tbinfo->attgenerated[i];
 		nfields++;
@@ -2168,9 +2171,7 @@ dumpTableData_insert(Archive *fout, const void *dcontext)
 	 * then append 'rolname' column in the query string so that 'orig_loginname' column
 	 * gets populated with the same value as 'rolname' column.
 	 */
-	if (!found && isBabelfishDatabase(fout) && tbinfo->dobj.namespace &&
-		pg_strcasecmp(tbinfo->dobj.namespace->dobj.name, "sys") == 0 &&
-		pg_strcasecmp(tbinfo->dobj.name, "babelfish_authid_login_ext") == 0)
+	if (!found && is_babelfish_authid_login_ext)
 	{
 		appendPQExpBufferStr(q, ", ");
 		appendPQExpBufferStr(q, fmtId("rolname"));
@@ -2246,11 +2247,15 @@ dumpTableData_insert(Archive *fout, const void *dcontext)
 					 * Replace 'rolname' column we added earlier with 'orig_loginname' in
 					 * insert statement's column list.
 					 */
-					if (!found && isBabelfishDatabase(fout) && tbinfo->dobj.namespace &&
-						pg_strcasecmp(tbinfo->dobj.namespace->dobj.name, "sys") == 0 &&
-						pg_strcasecmp(tbinfo->dobj.name, "babelfish_authid_login_ext") == 0)
+					if (!found && is_babelfish_authid_login_ext)
 					{
-						insertStmt->len -= strlen(fmtId("rolname"));
+						int rolnamelen = strlen(fmtId("rolname"));
+
+						/* Assert that the last column is indeed 'rolname' */
+						Assert(insertStmt->len > rolnamelen);
+						Assert(strcmp(&(insertStmt->data[insertStmt->len - rolnamelen]), fmtId("rolname")) == 0);
+
+						insertStmt->len -= rolnamelen;
 						insertStmt->data[insertStmt->len] = '\0';
 						appendPQExpBufferStr(insertStmt, fmtId("orig_loginname"));
 					}
