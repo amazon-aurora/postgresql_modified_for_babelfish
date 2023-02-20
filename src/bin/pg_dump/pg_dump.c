@@ -18216,7 +18216,7 @@ fmtCopyColumnList(const TableInfo *ti, PQExpBuffer buffer)
 			continue;
 		if (attgenerated[i])
 			continue;
-		if (atttypnames[i] == "rowversion" || atttypnames[i] == "timestamp")
+		if (strcmp(atttypnames[i], "rowversion") == 0 || strcmp(atttypnames[i], "timestamp") == 0)
 			continue;
 		if (needComma)
 			appendPQExpBufferStr(buffer, ", ");
