@@ -18202,6 +18202,7 @@ fmtCopyColumnList(const TableInfo *ti, PQExpBuffer buffer)
 {
 	int			numatts = ti->numatts;
 	char	  **attnames = ti->attnames;
+	char	  **atttypnames = ti->atttypnames;
 	bool	   *attisdropped = ti->attisdropped;
 	char	   *attgenerated = ti->attgenerated;
 	bool		needComma;
@@ -18214,6 +18215,8 @@ fmtCopyColumnList(const TableInfo *ti, PQExpBuffer buffer)
 		if (attisdropped[i])
 			continue;
 		if (attgenerated[i])
+			continue;
+		if (atttypnames[i] == "rowversion" || atttypnames[i] == "timestamp")
 			continue;
 		if (needComma)
 			appendPQExpBufferStr(buffer, ", ");
