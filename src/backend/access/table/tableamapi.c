@@ -103,6 +103,8 @@ GetTableAmRoutine(Oid amhandler)
 	Assert(routine->scan_sample_next_block != NULL);
 	Assert(routine->scan_sample_next_tuple != NULL);
 
+	Assert(routine->tuple_satisfies_visibility != NULL);
+
 	return routine;
 }
 

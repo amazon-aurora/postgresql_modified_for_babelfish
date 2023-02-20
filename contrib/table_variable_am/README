@@ -1,0 +1,6 @@
+Table Variable AM
+==============
+
+Table Variable AM is a module to use TEMP TABLEs that rollback insesitive.
+The main objective is to simulate SQL Server Table Variable type.
+

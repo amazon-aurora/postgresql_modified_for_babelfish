@@ -1,0 +1,5 @@
+# table_variable_am extension
+comment = 'table_variable_am - babelfish access method template'
+default_version = '1.0'
+module_pathname = '$libdir/table_variable_am'
+relocatable = true

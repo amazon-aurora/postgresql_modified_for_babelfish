@@ -231,6 +231,23 @@ heapam_tuple_satisfies_snapshot(Relation rel, TupleTableSlot *slot,
 	return res;
 }
 
+static bool
+heapam_tuple_satisfies_visibility(void *tuple, Snapshot snapshot, Buffer buffer)
+{
+	Assert(BufferIsValid(buffer));
+
+	// Caller should be holding pin, and lock
+	return HeapTupleSatisfiesVisibility((HeapTuple) tuple, snapshot, buffer);
+}
+
+static TM_Result
+heapam_tuple_satisfies_update(void *tuple, CommandId curcid, Buffer buffer)
+{
+	Assert(BufferIsValid(buffer));
+
+	// Caller should be holding pin, and lock
+	return HeapTupleSatisfiesUpdate((HeapTuple) tuple, curcid, buffer);
+}
 
 /* ----------------------------------------------------------------------------
  *  Functions for manipulations of physical tuples for heap AM.
@@ -2589,7 +2606,10 @@ static const TableAmRoutine heapam_methods = {
 	.scan_bitmap_next_block = heapam_scan_bitmap_next_block,
 	.scan_bitmap_next_tuple = heapam_scan_bitmap_next_tuple,
 	.scan_sample_next_block = heapam_scan_sample_next_block,
-	.scan_sample_next_tuple = heapam_scan_sample_next_tuple
+	.scan_sample_next_tuple = heapam_scan_sample_next_tuple,
+
+	.tuple_satisfies_visibility = heapam_tuple_satisfies_visibility,
+	.tuple_satisfies_update = heapam_tuple_satisfies_update
 };
 
 

@@ -850,6 +850,14 @@ typedef struct TableAmRoutine
 										   struct SampleScanState *scanstate,
 										   TupleTableSlot *slot);
 
+	bool		(*tuple_satisfies_visibility) (void *tuple,
+												Snapshot snapshot,
+												Buffer buffer);
+	
+	TM_Result		(*tuple_satisfies_update) (void *tuple,
+											CommandId curcid,
+											Buffer buffer);
+
 } TableAmRoutine;
 
 
@@ -1307,6 +1315,20 @@ table_tuple_satisfies_snapshot(Relation rel, TupleTableSlot *slot,
 							   Snapshot snapshot)
 {
 	return rel->rd_tableam->tuple_satisfies_snapshot(rel, slot, snapshot);
+}
+
+static inline bool
+table_tuple_satisfies_visibility(Relation rel, void *tuple,
+								Snapshot snapshot, Buffer buffer)
+{
+	return rel->rd_tableam->tuple_satisfies_visibility(tuple, snapshot, buffer);
+}
+
+static inline TM_Result
+table_tuple_satisfies_update(Relation rel, void *tuple,
+							CommandId curcid, Buffer buffer)
+{
+	return rel->rd_tableam->tuple_satisfies_update(tuple, curcid, buffer);
 }
 
 /*

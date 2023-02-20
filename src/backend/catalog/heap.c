@@ -1143,7 +1143,7 @@ heap_create_with_catalog(const char *relname,
 		 * in TSQL, temporary table name should start with '#'.
 		 * If temporary table name does not start with '#', assume it is a PG temporary table.
 		 * This can happen in the case of internal query to create PG temporary table for Babelfish */
-		if (relname != 0 && strlen(relname) >= 1 && relname[0] == '#')
+		if (relname != 0 && strlen(relname) >= 1 && (relname[0] == '#' || relname[0] == '@'))
 			is_enr = true;
 	}
 
