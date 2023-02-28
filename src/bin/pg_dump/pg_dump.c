@@ -2149,6 +2149,9 @@ dumpTableData_insert(Archive *fout, const void *dcontext)
 			continue;
 		if (tbinfo->attgenerated[i] && dopt->column_inserts)
 			continue;
+		/* rowversion/timestamp columns need to be skipped as instead of dumping they should be re-generated */
+		if (pg_strcasecmp(tbinfo->atttypnames[i], "\"sys\".\"rowversion\"") == 0 || pg_strcasecmp(tbinfo->atttypnames[i], "\"sys\".\"timestamp\"") == 0)
+			continue;
 		if (nfields > 0)
 			appendPQExpBufferStr(q, ", ");
 		if (tbinfo->attgenerated[i])
@@ -18216,8 +18219,11 @@ fmtCopyColumnList(const TableInfo *ti, PQExpBuffer buffer)
 			continue;
 		if (attgenerated[i])
 			continue;
-		if (strcmp(atttypnames[i], "rowversion") == 0 || strcmp(atttypnames[i], "timestamp") == 0)
-			continue;
+
+		/* rowversion/timestamp columns need to be skipped as instead of dumping they should be re-generated */
+		if (pg_strcasecmp(atttypnames[i], "\"sys\".\"rowversion\"") == 0 || pg_strcasecmp(atttypnames[i], "\"sys\".\"timestamp\"") == 0)
+		continue;
+
 		if (needComma)
 			appendPQExpBufferStr(buffer, ", ");
 		appendPQExpBufferStr(buffer, fmtId(attnames[i]));
