@@ -32,6 +32,8 @@
 				   (obj)->dobj.name)
 
 static const CatalogId nilCatalogId = {0, 0};
+static char *escaped_bbf_db_name = NULL;
+static int bbf_db_id = 0;
 
 static char *getMinOid(Archive *fout);
 
@@ -624,7 +626,6 @@ prepareForLogicalDatabaseDump(Archive *fout, SimpleStringList *schema_include_pa
 	PQExpBuffer query;
 	PGresult	*res;
 	int			ntups;
-	int			dbid;
 	int			i;
 
 	if (!isBabelfishDatabase(fout))
@@ -633,21 +634,28 @@ prepareForLogicalDatabaseDump(Archive *fout, SimpleStringList *schema_include_pa
 		exit_nicely(1);
 	}
 
+	/*
+	 * Get escaped bbf_db_name to handle special characters in it.
+	 * 2*strlen+1 bytes are required for PQescapeString according to the documentation.
+	 */
+	escaped_bbf_db_name = pg_malloc(2 * strlen(bbf_db_name) + 1);
+	PQescapeString(escaped_bbf_db_name, bbf_db_name, strlen(bbf_db_name));
+
 	query = createPQExpBuffer();
 	/* get dbid of the given babelfish logical database from sys.babelfish_sysdatabases */
 	appendPQExpBuffer(query,
 					  "SELECT dbid "
 					  "FROM sys.babelfish_sysdatabases "
 					  "WHERE name = '%s';",
-					  bbf_db_name);
+					  escaped_bbf_db_name);
 	res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
 	if (PQntuples(res) != 1)
 	{
-		pg_log_error("Babelfish database \"%s\" does not exists.", bbf_db_name);
+		pg_log_error("Babelfish database \"%s\" does not exists.", escaped_bbf_db_name);
 		exit_nicely(1);
 	}
 
-	dbid = atooid(PQgetvalue(res, 0, PQfnumber(res, "dbid")));
+	bbf_db_id = atooid(PQgetvalue(res, 0, PQfnumber(res, "dbid")));
 	PQclear(res);
 	destroyPQExpBuffer(query);
 
@@ -657,7 +665,7 @@ prepareForLogicalDatabaseDump(Archive *fout, SimpleStringList *schema_include_pa
 					  "SELECT pg_catalog.quote_ident(nspname) AS nspname "
 					  "FROM sys.babelfish_namespace_ext "
 					  "WHERE dbid = %d;",
-					  dbid);
+					  bbf_db_id);
 	res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
 	ntups = PQntuples(res);
 
@@ -730,11 +738,8 @@ getBabelfishDependencies(Archive *fout)
 void
 getCursorForBbfCatalogTableData(Archive *fout, TableInfo *tbinfo, PQExpBuffer buf, int *nfields)
 {
-	PQExpBuffer q = createPQExpBuffer();
-	PGresult   *res;
-	int			i,
-				dbid;
-	bool		is_builtin_db = false;
+	int		i;
+	bool	is_builtin_db = false;
 
 	if (!isBabelfishDatabase(fout) || bbf_db_name == NULL)
 		return;
@@ -752,12 +757,6 @@ getCursorForBbfCatalogTableData(Archive *fout, TableInfo *tbinfo, PQExpBuffer bu
 		 strcmp(tbinfo->dobj.name, "babelfish_domain_mapping") == 0))
 		return;
 
-	appendPQExpBuffer(q, "SELECT dbid FROM sys.babelfish_sysdatabases WHERE name = '%s';", bbf_db_name);
-	res = ExecuteSqlQueryForSingleRow(fout, q->data);
-	dbid = atooid(PQgetvalue(res, 0, 0));
-
-	PQclear(res);
-	destroyPQExpBuffer(q);
 	resetPQExpBuffer(buf);
 	appendPQExpBufferStr(buf, "DECLARE _pg_dump_cursor CURSOR FOR SELECT ");
 	*nfields = 0;
@@ -777,35 +776,38 @@ getCursorForBbfCatalogTableData(Archive *fout, TableInfo *tbinfo, PQExpBuffer bu
 	if (strcmp(tbinfo->dobj.name, "babelfish_sysdatabases") == 0)
 	{
 		appendPQExpBuffer(buf, " FROM ONLY %s a WHERE a.dbid = %d",
-						  fmtQualifiedDumpable(tbinfo), dbid);
+						  fmtQualifiedDumpable(tbinfo), bbf_db_id);
 		if (is_builtin_db)
 			appendPQExpBufferStr(buf, " LIMIT 0");
 	}
 	else if (strcmp(tbinfo->dobj.name, "babelfish_namespace_ext") == 0)
 	{
 		appendPQExpBuffer(buf, " FROM ONLY %s a WHERE a.dbid = %d",
-						  fmtQualifiedDumpable(tbinfo), dbid);
+						  fmtQualifiedDumpable(tbinfo), bbf_db_id);
 		if (is_builtin_db)
 			appendPQExpBuffer(buf, " AND a.nspname NOT IN ('%s_dbo', '%s_guest')",
-							  bbf_db_name, bbf_db_name);
+							  escaped_bbf_db_name, escaped_bbf_db_name);
 	}
 	else if (strcmp(tbinfo->dobj.name, "babelfish_view_def") == 0)
 		appendPQExpBuffer(buf, " FROM ONLY %s a WHERE a.dbid = %d",
-						  fmtQualifiedDumpable(tbinfo), dbid);
+						  fmtQualifiedDumpable(tbinfo), bbf_db_id);
 	else if (strcmp(tbinfo->dobj.name, "babelfish_function_ext") == 0)
 		appendPQExpBuffer(buf, " FROM ONLY %s a "
 						  "INNER JOIN sys.babelfish_namespace_ext b "
 						  "ON a.nspname = b.nspname "
 						  "WHERE b.dbid = %d",
-						  fmtQualifiedDumpable(tbinfo), dbid);
+						  fmtQualifiedDumpable(tbinfo), bbf_db_id);
 	else if(strcmp(tbinfo->dobj.name, "babelfish_authid_user_ext") == 0)
 	{
 		appendPQExpBuffer(buf, " FROM ONLY %s a WHERE a.database_name = '%s'",
-						  fmtQualifiedDumpable(tbinfo), bbf_db_name);
+						  fmtQualifiedDumpable(tbinfo), escaped_bbf_db_name);
 		if (is_builtin_db)
 			appendPQExpBuffer(buf, " AND a.rolname NOT IN ('%s_dbo', '%s_db_owner', '%s_guest')",
-							  bbf_db_name, bbf_db_name, bbf_db_name);
+							  escaped_bbf_db_name, escaped_bbf_db_name, escaped_bbf_db_name);
 	}
+	else if (strcmp(tbinfo->dobj.name, "babelfish_authid_login_ext") == 0)
+		appendPQExpBuffer(buf, " FROM ONLY %s a WHERE a.rolname != 'sysadmin'",
+						fmtQualifiedDumpable(tbinfo));
 	else
 		appendPQExpBuffer(buf, " FROM ONLY %s a",
 						fmtQualifiedDumpable(tbinfo));

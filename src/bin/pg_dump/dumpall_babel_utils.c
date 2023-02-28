@@ -34,8 +34,17 @@ char *bbf_db_name = NULL;
 void
 getBabelfishRolesQuery(PQExpBuffer buf, char *role_catalog, bool drop_query)
 {
+	char *escaped_bbf_db_name;
+
 	if (!bbf_db_name)
 		return;
+
+	/*
+	 * Get escaped bbf_db_name to handle special characters in it.
+	 * 2*strlen+1 bytes are required for PQescapeString according to the documentation.
+	 */
+	escaped_bbf_db_name = pg_malloc(2 * strlen(bbf_db_name) + 1);
+	PQescapeString(escaped_bbf_db_name, bbf_db_name, strlen(bbf_db_name));
 
 	resetPQExpBuffer(buf);
 	if (drop_query)
@@ -50,7 +59,7 @@ getBabelfishRolesQuery(PQExpBuffer buf, char *role_catalog, bool drop_query)
 						  "INNER JOIN bbf_roles bc "
 						  "ON rc.rolname = bc.rolname "
 						  "WHERE rc.rolname !~ '^pg_' "
-						  "ORDER BY 1", bbf_db_name, role_catalog);
+						  "ORDER BY 1", escaped_bbf_db_name, role_catalog);
 	}
 	else
 	{
@@ -69,7 +78,7 @@ getBabelfishRolesQuery(PQExpBuffer buf, char *role_catalog, bool drop_query)
 						  "INNER JOIN bbf_roles bc "
 						  "ON rc.rolname = bc.rolname "
 						  "WHERE rc.rolname !~ '^pg_' "
-						  "ORDER BY 2", bbf_db_name, role_catalog, role_catalog);
+						  "ORDER BY 2", escaped_bbf_db_name, role_catalog, role_catalog);
 	}
 }
 
@@ -80,8 +89,17 @@ getBabelfishRolesQuery(PQExpBuffer buf, char *role_catalog, bool drop_query)
 void
 getBabelfishRoleMembershipQuery(PQExpBuffer buf, char *role_catalog)
 {
+	char *escaped_bbf_db_name;
+
 	if (!bbf_db_name)
 		return;
+
+	/*
+	 * Get escaped bbf_db_name to handle special characters in it.
+	 * 2*strlen+1 bytes are required for PQescapeString according to the documentation.
+	 */
+	escaped_bbf_db_name = pg_malloc(2 * strlen(bbf_db_name) + 1);
+	PQescapeString(escaped_bbf_db_name, bbf_db_name, strlen(bbf_db_name));
 
 	resetPQExpBuffer(buf);
 	printfPQExpBuffer(buf, "WITH bbf_roles AS "
@@ -100,5 +118,5 @@ getBabelfishRoleMembershipQuery(PQExpBuffer buf, char *role_catalog)
 					  "INNER JOIN bbf_roles um on um.oid = a.member "
 					  "LEFT JOIN bbf_roles ug on ug.oid = a.grantor "
 					  "WHERE NOT (ur.rolname ~ '^pg_' AND um.rolname ~ '^pg_')"
-					  "ORDER BY 1,2,3", role_catalog, bbf_db_name, role_catalog);
+					  "ORDER BY 1,2,3", role_catalog, escaped_bbf_db_name, role_catalog);
 }
