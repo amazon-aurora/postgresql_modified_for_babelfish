@@ -2030,6 +2030,7 @@ dumpTableData_copy(Archive *fout, const void *dcontext)
 						  fmtQualifiedDumpable(tbinfo),
 						  column_list);
 	}
+	fixCopyCommand(fout, q, tbinfo, false);
 	res = ExecuteSqlQuery(fout, q->data, PGRES_COPY_OUT);
 	PQclear(res);
 	destroyPQExpBuffer(clistBuf);
@@ -2455,11 +2456,25 @@ dumpTableData(Archive *fout, const TableDataInfo *tdinfo)
 						  copyFrom);
 		appendPQExpBuffer(copyBuf, "%s FROM stdin;\n",
 						  fmtCopyColumnList(tbinfo, clistBuf));
+		fixCopyCommand(fout, copyBuf, tbinfo, true);
 		copyStmt = copyBuf->data;
 	}
 	else
 	{
 		/* Restore using INSERT */
+		dumpFn = dumpTableData_insert;
+		copyStmt = NULL;
+	}
+
+	/*
+	 * Always restore sys.babelfish_authid_login_ext Babelfish catalog table
+	 * using INSERT. This is needed because some inserts might fail due to certain
+	 * login being pre-existing on the target server.
+	 */
+	if (isBabelfishDatabase(fout) && bbf_db_name != NULL &&
+		strcmp(tbinfo->dobj.namespace->dobj.name, "sys") == 0 &&
+		strcmp(tbinfo->dobj.name, "babelfish_authid_login_ext") == 0)
+	{
 		dumpFn = dumpTableData_insert;
 		copyStmt = NULL;
 	}

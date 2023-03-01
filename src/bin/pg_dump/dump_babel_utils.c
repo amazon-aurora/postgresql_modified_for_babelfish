@@ -764,6 +764,7 @@ getCursorForBbfCatalogTableData(Archive *fout, TableInfo *tbinfo, PQExpBuffer bu
 	{
 		if (tbinfo->attisdropped[i])
 			continue;
+		/* Skip dbid column, we will generate new database id during restore. */
 		if (!is_builtin_db && strcmp(tbinfo->attnames[i], "dbid") == 0)
 			continue;
 		if (*nfields > 0)
@@ -777,6 +778,10 @@ getCursorForBbfCatalogTableData(Archive *fout, TableInfo *tbinfo, PQExpBuffer bu
 	{
 		appendPQExpBuffer(buf, " FROM ONLY %s a WHERE a.dbid = %d",
 						  fmtQualifiedDumpable(tbinfo), bbf_db_id);
+		/*
+		 * builtin db will already be present in the target server so
+		 * no need to dump catalog entry for it
+		 */
 		if (is_builtin_db)
 			appendPQExpBufferStr(buf, " LIMIT 0");
 	}
@@ -811,4 +816,115 @@ getCursorForBbfCatalogTableData(Archive *fout, TableInfo *tbinfo, PQExpBuffer bu
 	else
 		appendPQExpBuffer(buf, " FROM ONLY %s a",
 						fmtQualifiedDumpable(tbinfo));
+}
+
+/*
+ * fixCopyCommand:
+ * Fixes column list in a COPY command as well as modifies the command
+ * for all Babelfish catalog tables to selectively dump the data corresponding
+ * to specified logical database.
+ * isFrom decides whether we are copying FROM or TO.
+ */
+void
+fixCopyCommand(Archive *fout, PQExpBuffer copyBuf, TableInfo *tbinfo, bool isFrom)
+{
+	PQExpBuffer	q;
+	int			i;
+	bool		is_builtin_db = false;
+	bool		needComma = false;
+
+	if (!isBabelfishDatabase(fout) || bbf_db_name == NULL)
+		return;
+
+	is_builtin_db = pg_strcasecmp(bbf_db_name, "master") == 0 ? true : false;
+
+	if (tbinfo->dobj.namespace == NULL ||
+		strcmp(tbinfo->dobj.namespace->dobj.name, "sys") != 0 ||
+		!(strcmp(tbinfo->dobj.name, "babelfish_sysdatabases") == 0 ||
+		 strcmp(tbinfo->dobj.name, "babelfish_namespace_ext") == 0 ||
+		 strcmp(tbinfo->dobj.name, "babelfish_function_ext") == 0 ||
+		 strcmp(tbinfo->dobj.name, "babelfish_authid_login_ext") == 0 ||
+		 strcmp(tbinfo->dobj.name, "babelfish_authid_user_ext") == 0 ||
+		 strcmp(tbinfo->dobj.name, "babelfish_view_def") == 0 ||
+		 strcmp(tbinfo->dobj.name, "babelfish_domain_mapping") == 0))
+		return;
+
+	q = createPQExpBuffer();
+	for (i = 0; i < tbinfo->numatts; i++)
+	{
+		if (tbinfo->attisdropped[i])
+			continue;
+		if (tbinfo->attgenerated[i])
+			continue;
+		/* Skip dbid column, we will generate new database id during restore. */
+		if (!is_builtin_db && strcmp(tbinfo->attnames[i], "dbid") == 0)
+			continue;
+		if (needComma)
+			appendPQExpBufferStr(q, ", ");
+		/*
+		 * In case of COPY TO, we are going to form SELECT statement
+		 * which needs table reference in column names.
+		 */
+		if (!isFrom)
+			appendPQExpBufferStr(q, "a.");
+		appendPQExpBufferStr(q, fmtId(tbinfo->attnames[i]));
+		needComma = true;
+	}
+
+	resetPQExpBuffer(copyBuf);
+	if (isFrom)
+		appendPQExpBuffer(copyBuf, "COPY %s (%s) FROM stdin;\n",
+						  fmtQualifiedDumpable(tbinfo),
+						  q->data);
+	else
+	{
+		appendPQExpBuffer(copyBuf, "COPY (SELECT %s ",
+						  q->data);
+		destroyPQExpBuffer(q);
+
+		if (strcmp(tbinfo->dobj.name, "babelfish_sysdatabases") == 0)
+		{
+			appendPQExpBuffer(copyBuf, "FROM ONLY %s a WHERE a.dbid = %d",
+							  fmtQualifiedDumpable(tbinfo), bbf_db_id);
+			/*
+			 * builtin db will already be present in the target server so
+			 * no need to dump catalog entry for it.
+			 */
+			if (is_builtin_db)
+				appendPQExpBufferStr(copyBuf, " LIMIT 0");
+		}
+		else if (strcmp(tbinfo->dobj.name, "babelfish_namespace_ext") == 0)
+		{
+			appendPQExpBuffer(copyBuf, "FROM ONLY %s a WHERE a.dbid = %d",
+							  fmtQualifiedDumpable(tbinfo), bbf_db_id);
+			if (is_builtin_db)
+				appendPQExpBuffer(copyBuf, " AND a.nspname NOT IN ('%s_dbo', '%s_guest')",
+								  escaped_bbf_db_name, escaped_bbf_db_name);
+		}
+		else if (strcmp(tbinfo->dobj.name, "babelfish_view_def") == 0)
+			appendPQExpBuffer(copyBuf, "FROM ONLY %s a WHERE a.dbid = %d",
+							  fmtQualifiedDumpable(tbinfo), bbf_db_id);
+		else if (strcmp(tbinfo->dobj.name, "babelfish_function_ext") == 0)
+			appendPQExpBuffer(copyBuf, "FROM ONLY %s a "
+							  "INNER JOIN sys.babelfish_namespace_ext b "
+							  "ON a.nspname = b.nspname "
+							  "WHERE b.dbid = %d",
+							  fmtQualifiedDumpable(tbinfo), bbf_db_id);
+		else if(strcmp(tbinfo->dobj.name, "babelfish_authid_user_ext") == 0)
+		{
+			appendPQExpBuffer(copyBuf, "FROM ONLY %s a WHERE a.database_name = '%s'",
+							  fmtQualifiedDumpable(tbinfo), bbf_db_name);
+			if (is_builtin_db)
+				appendPQExpBuffer(copyBuf, " AND a.rolname NOT IN ('%s_dbo', '%s_db_owner', '%s_guest')",
+								  escaped_bbf_db_name, escaped_bbf_db_name, escaped_bbf_db_name);
+		}
+		else if (strcmp(tbinfo->dobj.name, "babelfish_authid_login_ext") == 0)
+			appendPQExpBuffer(copyBuf, " FROM ONLY %s a WHERE a.rolname != 'sysadmin'",
+							  fmtQualifiedDumpable(tbinfo));
+		else
+			appendPQExpBuffer(copyBuf, "FROM ONLY %s a",
+							  fmtQualifiedDumpable(tbinfo));
+
+		appendPQExpBufferStr(copyBuf, ") TO stdout;");
+	}
 }

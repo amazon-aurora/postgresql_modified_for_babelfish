@@ -39,5 +39,6 @@ extern void prepareForLogicalDatabaseDump(Archive *fout, SimpleStringList *schem
 extern void getBabelfishDependencies(Archive *fout);
 extern void dumpBabelGUCs(Archive *fout);
 extern void getCursorForBbfCatalogTableData(Archive *fout, TableInfo *tbinfo, PQExpBuffer buf, int *nfields);
+extern void fixCopyCommand(Archive *fout, PQExpBuffer copyBuf, TableInfo *tbinfo, bool isFrom);
 
 #endif
