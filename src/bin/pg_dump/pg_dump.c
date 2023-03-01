@@ -18225,12 +18225,13 @@ fmtCopyColumnList(const TableInfo *ti, PQExpBuffer buffer)
 		if (attgenerated[i])
 			continue;
 
-		pg_log_info("atttypenames: %s, fmtId: %s", atttypnames[i], fmtId("\"sys\".\"rowversion\""));
-
 		/* rowversion/timestamp columns need to be skipped as instead of dumping they should be re-generated */
-		if (pg_strcasecmp(atttypnames[i], fmtId("\"sys\".\"rowversion\"")) == 0 || pg_strcasecmp(atttypnames[i], fmtId("\"sys\".\"timestamp\"")) == 0)
+		if (pg_strcasecmp(atttypnames[i], 
+			quote_all_identifiers ? "\"sys\".\"rowversion\"" : "sys.rowversion") == 0 || 
+			pg_strcasecmp(atttypnames[i], 
+			quote_all_identifiers ? "\"sys\".\"timestamp\"": "sys.timestamp") == 0)
 		continue;
-		
+
 		if (needComma)
 			appendPQExpBufferStr(buffer, ", ");
 		appendPQExpBufferStr(buffer, fmtId(attnames[i]));
