@@ -2149,9 +2149,14 @@ dumpTableData_insert(Archive *fout, const void *dcontext)
 			continue;
 		if (tbinfo->attgenerated[i] && dopt->column_inserts)
 			continue;
+
 		/* rowversion/timestamp columns need to be skipped as instead of dumping they should be re-generated */
-		if (pg_strcasecmp(tbinfo->atttypnames[i], "\"sys\".\"rowversion\"") == 0 || pg_strcasecmp(tbinfo->atttypnames[i], "\"sys\".\"timestamp\"") == 0)
-			continue;
+		if (pg_strcasecmp(tbinfo->atttypnames[i], 
+			quote_all_identifiers ? "\"sys\".\"rowversion\"" : "sys.rowversion") == 0 || 
+			pg_strcasecmp(tbinfo->atttypnames[i], 
+			quote_all_identifiers ? "\"sys\".\"timestamp\"": "sys.timestamp") == 0)
+		continue;
+
 		if (nfields > 0)
 			appendPQExpBufferStr(q, ", ");
 		if (tbinfo->attgenerated[i])
@@ -18220,10 +18225,12 @@ fmtCopyColumnList(const TableInfo *ti, PQExpBuffer buffer)
 		if (attgenerated[i])
 			continue;
 
-		/* rowversion/timestamp columns need to be skipped as instead of dumping they should be re-generated */
-		if (pg_strcasecmp(atttypnames[i], "\"sys\".\"rowversion\"") == 0 || pg_strcasecmp(atttypnames[i], "\"sys\".\"timestamp\"") == 0)
-		continue;
+		pg_log_info("atttypenames: %s, fmtId: %s", atttypnames[i], fmtId("\"sys\".\"rowversion\""));
 
+		/* rowversion/timestamp columns need to be skipped as instead of dumping they should be re-generated */
+		if (pg_strcasecmp(atttypnames[i], fmtId("\"sys\".\"rowversion\"")) == 0 || pg_strcasecmp(atttypnames[i], fmtId("\"sys\".\"timestamp\"")) == 0)
+		continue;
+		
 		if (needComma)
 			appendPQExpBufferStr(buffer, ", ");
 		appendPQExpBufferStr(buffer, fmtId(attnames[i]));
