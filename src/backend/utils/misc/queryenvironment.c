@@ -26,6 +26,8 @@
 #include "access/table.h"
 #include "access/tupdesc.h"
 #include "access/htup_details.h"
+#include "access/relation.h"
+#include "access/xact.h"
 #include "access/relscan.h"        /* SysScan related */
 #include "catalog/catalog.h"
 #include "catalog/dependency.h"
@@ -38,6 +40,7 @@
 #include "catalog/pg_sequence.h"
 #include "catalog/pg_shdepend.h"
 #include "catalog/pg_index_d.h"
+#include "catalog/storage.h"
 #include "parser/parser.h"      /* only needed for GUC variables */
 #include "utils/inval.h"
 #include "utils/syscache.h"
@@ -64,6 +67,27 @@ typedef enum ENRTupleOperationType
 	ENR_OP_UPDATE,
 	ENR_OP_DROP
 } ENRTupleOperationType;
+
+typedef struct ENRCatalogRelationTypeToOidMapping
+{
+	ENRCatalogTupleType type;
+	Oid oid;
+} ENRCatalogRelationTypeToOidMapping;
+
+#define ENR_CATALOG_ARRAY_LEN 11
+const ENRCatalogRelationTypeToOidMapping ENR_CATALOG_ARRAY[ENR_CATALOG_ARRAY_LEN] = {
+	{ENR_CATTUP_CLASS, RelationRelationId},
+	{ENR_CATTUP_ARRAYTYPE, TypeRelationId},
+	{ENR_CATTUP_TYPE, TypeRelationId},
+	{ENR_CATTUP_ATTRIBUTE, AttributeRelationId},
+	{ENR_CATTUP_CONSTRAINT, ConstraintRelationId},
+	{ENR_CATTUP_STATISTIC, StatisticRelationId},
+	{ENR_CATTUP_STATISTIC_EXT, StatisticExtRelationId},
+	{ENR_CATTUP_DEPEND, DependRelationId},
+	{ENR_CATTUP_SHDEPEND, SharedDependRelationId},
+	{ENR_CATTUP_INDEX, IndexRelationId},
+	{ENR_CATTUP_SEQUENCE, SequenceRelationId}
+};
 
 QueryEnvironment *
 create_queryEnv(void)
@@ -1033,4 +1057,119 @@ extern void ENRDropCatalogEntry(Relation catalog_relation, Oid relid)
 
 		queryEnv = queryEnv->parentEnv;
 	}
+}
+
+/*
+ * Invalidate the catalog cache entry that references the tuple at catalog_reloid.
+ * For instance, ENR1 contains the following catalog tuples [pg_class: tuple1, pg_index: tuple2, etc.]
+ * If reloid matches pg_class oid, then this function invalidates the catalog cache entry pointing to tuple1
+ */
+static void ENRCacheInvalidateEntry(EphemeralNamedRelation enr, Oid catalog_reloid, ENRCatalogTupleType type)
+{
+	Relation catalog_rel = table_open(catalog_reloid, AccessShareLock);
+	List **list_ptr = &enr->md.cattups[type];
+	while (*list_ptr)
+	{
+		HeapTuple tuple = (HeapTuple) list_nth(*list_ptr, 0);
+		*list_ptr = list_delete_ptr(*list_ptr, tuple);
+		CacheInvalidateHeapTuple(catalog_rel, tuple, NULL);
+		heap_freetuple(tuple); // heap_copytuple was called during ADD
+	}
+	table_close(catalog_rel, AccessShareLock);
+}
+
+
+static void ENRDropRelation(EphemeralNamedRelation enr)
+{
+	Oid relid = enr->md.reliddesc;
+	Relation rel = try_relation_open(relid, AccessShareLock);
+	if (rel)
+	{
+
+		if (drop_relation_refcnt_hook)
+			drop_relation_refcnt_hook(rel);
+
+		if (RELKIND_HAS_STORAGE(rel->rd_rel->relkind))
+			RelationDropStorage(rel);
+
+		relation_close(rel, AccessShareLock);
+	}
+
+	RelationForgetRelation(relid);
+
+	for (int i = 0; i < ENR_CATALOG_ARRAY_LEN; i++)
+	{
+		ENRCatalogRelationTypeToOidMapping pair = ENR_CATALOG_ARRAY[i];
+		ENRCacheInvalidateEntry(enr, pair.oid, pair.type);
+	}
+
+	ENRDropEntry(relid);
+}
+
+static void ENRDropTableInternal(EphemeralNamedRelation enr)
+{
+	Relation rel = NULL;
+	Oid relid = enr->md.reliddesc;
+	Oid identityOid = InvalidOid;
+	List *indexoidlist;
+	ListCell   *l;
+
+	rel = relation_open(relid, AccessShareLock);
+
+	/* First Drop the index */
+	indexoidlist = RelationGetIndexList(rel);
+	foreach(l, indexoidlist)
+	{
+		Oid indexOid = lfirst_oid(l);
+		EphemeralNamedRelation indexEnr = get_ENR_withoid(currentQueryEnv, indexOid, ENR_TSQL_TEMP);
+		Assert(indexEnr);
+		ENRDropRelation(indexEnr);
+	}
+	list_free(indexoidlist);
+	relation_close(rel, AccessShareLock);
+
+	/* Now drop any identity columns */
+	identityOid = getIdentitySequence(relid, 0, true);
+	if (OidIsValid(identityOid))
+	{
+		EphemeralNamedRelation identityEnr = get_ENR_withoid(currentQueryEnv, identityOid, ENR_TSQL_TEMP);
+		Assert(identityEnr);
+		ENRDropRelation(identityEnr);
+	}
+
+	/* Finally, drop the relation itself */
+	ENRDropRelation(enr);
+}
+
+/*
+ * Given an ENR table, drop the table together with its toast table,
+ * indices, and identity tables
+ */
+void ENRDropTable(EphemeralNamedRelation enr)
+{
+	Relation rel = NULL;
+	Oid relid = enr->md.reliddesc;
+
+	HeapTuple tuple = SearchSysCache1(RELOID, ObjectIdGetDatum(relid));
+	if (!HeapTupleIsValid(tuple))
+		elog(ERROR, "cache lookup failed for relation %u", relid);
+	ReleaseSysCache(tuple);
+
+	/* First drop its toast relation if any */
+	rel = relation_open(relid, AccessShareLock);
+	if (OidIsValid(rel->rd_rel->reltoastrelid))
+	{
+		EphemeralNamedRelation toastenr = get_ENR_withoid(currentQueryEnv, rel->rd_rel->reltoastrelid, ENR_TSQL_TEMP);
+		Assert(toastenr);
+
+		ENRDropTableInternal(toastenr);
+	}
+	relation_close(rel, AccessShareLock);
+
+	/* Finally drop the table itself */
+	ENRDropTableInternal(enr);
+
+	/* Make it visible to subsequence operations */
+	CommandCounterIncrement();
+
 }

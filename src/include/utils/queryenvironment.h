@@ -44,6 +44,7 @@ typedef enum ENRCatalogTupleType
 	ENR_CATTUP_END
 } ENRCatalogTupleType;
 
+
 /*
  * Some ephemeral named relations must match some relation (e.g., trigger
  * transition tables), so to properly handle cached plans and DDL, we should
@@ -107,5 +108,5 @@ extern void ENRDropTempTables(QueryEnvironment *queryEnv);
 extern void ENRDropEntry(Oid id);
 extern void ENRDropCatalogEntry(Relation catalog_relation, Oid relid);
 extern bool has_existing_enr_relations(void);
-
+extern void ENRDropTable(EphemeralNamedRelation relation);
 #endif							/* QUERYENVIRONMENT_H */

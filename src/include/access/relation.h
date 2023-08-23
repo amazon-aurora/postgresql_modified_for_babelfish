@@ -24,5 +24,4 @@ extern Relation relation_openrv(const RangeVar *relation, LOCKMODE lockmode);
 extern Relation relation_openrv_extended(const RangeVar *relation,
 										 LOCKMODE lockmode, bool missing_ok);
 extern void relation_close(Relation relation, LOCKMODE lockmode);
-
 #endif							/* ACCESS_RELATION_H */

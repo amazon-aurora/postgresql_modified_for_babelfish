@@ -150,4 +150,6 @@ extern PGDLLIMPORT bool criticalRelcachesBuilt;
 /* should be used only by relcache.c and postinit.c */
 extern PGDLLIMPORT bool criticalSharedRelcachesBuilt;
 
+typedef void (*drop_relation_refcnt_hook_type) (Relation rel);
+extern PGDLLIMPORT drop_relation_refcnt_hook_type drop_relation_refcnt_hook;
 #endif							/* RELCACHE_H */
