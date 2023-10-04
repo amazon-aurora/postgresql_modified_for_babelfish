@@ -118,6 +118,8 @@ mq_putmessage(char msgtype, const char *s, size_t len)
 	shm_mq_iovec iov[2];
 	shm_mq_result result;
 
+	elog(LOG, "Trying to writer %d data: %s", (int) len, s);
+
 	/*
 	 * If we're sending a message, and we have to wait because the queue is
 	 * full, and then we get interrupted, and that interrupt results in trying
@@ -162,9 +164,12 @@ mq_putmessage(char msgtype, const char *s, size_t len)
 		result = shm_mq_sendv(pq_mq_handle, iov, 2, true, true);
 
 		if (pq_mq_parallel_leader_pid != 0)
+		{
+			elog(LOG, "sending signal to leader from mq_putmessage");
 			SendProcSignal(pq_mq_parallel_leader_pid,
 						   PROCSIG_PARALLEL_MESSAGE,
 						   pq_mq_parallel_leader_backend_id);
+		}
 
 		if (result != SHM_MQ_WOULD_BLOCK)
 			break;

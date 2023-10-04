@@ -599,8 +599,10 @@ shm_mq_receive(shm_mq_handle *mqh, Size *nbytesp, void **datap, bool nowait)
 			 * check whether the sender ever attached in the first place.
 			 */
 			counterparty_gone = shm_mq_counterparty_gone(mq, mqh->mqh_handle);
+			elog(LOG, "Counter party %d", counterparty_gone);
 			if (shm_mq_get_sender(mq) == NULL)
 			{
+				elog(LOG,"sender is NULL line 605");
 				if (counterparty_gone)
 					return SHM_MQ_DETACHED;
 				else
@@ -610,10 +612,12 @@ shm_mq_receive(shm_mq_handle *mqh, Size *nbytesp, void **datap, bool nowait)
 		else if (!shm_mq_wait_internal(mq, &mq->mq_sender, mqh->mqh_handle)
 				 && shm_mq_get_sender(mq) == NULL)
 		{
+			elog(LOG, "SHM_MQ_DETACHED line 615");
 			mq->mq_detached = true;
 			return SHM_MQ_DETACHED;
 		}
 		mqh->mqh_counterparty_attached = true;
+		elog(LOG, " mqh_counterparty_attached = true");
 	}
 
 	/*
@@ -632,12 +636,16 @@ shm_mq_receive(shm_mq_handle *mqh, Size *nbytesp, void **datap, bool nowait)
 	/* Try to read, or finish reading, the length word from the buffer. */
 	while (!mqh->mqh_length_word_complete)
 	{
+		elog(LOG, "Trying to receive %d bytes", (int) (sizeof(Size) - mqh->mqh_partial_bytes));
 		/* Try to receive the message length word. */
 		Assert(mqh->mqh_partial_bytes < sizeof(Size));
 		res = shm_mq_receive_bytes(mqh, sizeof(Size) - mqh->mqh_partial_bytes,
 								   nowait, &rb, &rawdata);
 		if (res != SHM_MQ_SUCCESS)
+		{
+			elog(LOG, "res != SHM_MQ_SUCCESS line 646");
 			return res;
+		}
 
 		/*
 		 * Hopefully, we'll receive the entire message length word at once.
@@ -657,6 +665,7 @@ shm_mq_receive(shm_mq_handle *mqh, Size *nbytesp, void **datap, bool nowait)
 				mqh->mqh_consume_pending += needed;
 				*nbytesp = nbytes;
 				*datap = ((char *) rawdata) + MAXALIGN(sizeof(Size));
+				elog(LOG, "returned SHM_MQ_SUCCESS on line 668");
 				return SHM_MQ_SUCCESS;
 			}
 
@@ -735,6 +744,7 @@ shm_mq_receive(shm_mq_handle *mqh, Size *nbytesp, void **datap, bool nowait)
 			mqh->mqh_consume_pending += MAXALIGN(nbytes);
 			*nbytesp = nbytes;
 			*datap = rawdata;
+			elog(LOG, "returned SHM_MQ_SUCCESS on line 747");
 			return SHM_MQ_SUCCESS;
 		}
 
@@ -795,7 +805,10 @@ shm_mq_receive(shm_mq_handle *mqh, Size *nbytesp, void **datap, bool nowait)
 		still_needed = nbytes - mqh->mqh_partial_bytes;
 		res = shm_mq_receive_bytes(mqh, still_needed, nowait, &rb, &rawdata);
 		if (res != SHM_MQ_SUCCESS)
+		{
+			elog(LOG, "res != SHM_MQ_SUCCESS on line 809");
 			return res;
+		}
 		if (rb > still_needed)
 			rb = still_needed;
 	}
@@ -805,6 +818,7 @@ shm_mq_receive(shm_mq_handle *mqh, Size *nbytesp, void **datap, bool nowait)
 	*datap = mqh->mqh_buffer;
 	mqh->mqh_length_word_complete = false;
 	mqh->mqh_partial_bytes = 0;
+	elog(LOG, "SHM_MQ_SUCCESS finally!");
 	return SHM_MQ_SUCCESS;
 }
 

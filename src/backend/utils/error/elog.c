@@ -563,6 +563,7 @@ errfinish(const char *filename, int lineno, const char *funcname)
 	 */
 	if (elevel == ERROR)
 	{
+		elog(LOG, "elevel == ERROR and making InterruptHoldoffCount = 0;");
 		/*
 		 * We do some minimal cleanup before longjmp'ing so that handlers can
 		 * execute in a reasonably sane state.
@@ -674,6 +675,8 @@ errfinish(const char *filename, int lineno, const char *funcname)
 		abort();
 	}
 
+	printf("- --- - - - - elog.c:678, CHECK_FOR_INTERRUPTS\n");
+	fflush(stdout);
 	/*
 	 * Check for cancel/die interrupt first --- this is so that the user can
 	 * stop a query emitting tons of notice or warning messages, even if it's
@@ -1541,7 +1544,14 @@ EmitErrorReport(void)
 		if (MyProcPort)
 			MyProcPort->protocol_config->fn_send_message(edata);
 		else
+		{
+			//printf("using send_message_to_frontend from elog");
 			send_message_to_frontend(edata);
+		}
+	}
+	else
+	{
+		//printf("output_to_client is not enabled");
 	}
 
 	MemoryContextSwitchTo(oldcontext);
@@ -3141,6 +3151,8 @@ send_message_to_frontend(ErrorData *edata)
 		/* New style with separate fields */
 		const char *sev;
 		char		tbuf[12];
+
+		elog(LOG, "Sending error to leadr %s", edata->message);
 
 		/* 'N' (Notice) is for nonfatal conditions, 'E' is for errors */
 		pq_beginmessage(&msgbuf, (edata->elevel < ERROR) ? 'N' : 'E');

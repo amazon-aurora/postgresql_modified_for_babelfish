@@ -3408,7 +3408,10 @@ ProcessInterrupts(void)
 		ProcessProcSignalBarrier();
 
 	if (ParallelMessagePending)
+	{
+		elog(LOG, "Handling parallel message");
 		HandleParallelMessages();
+	}
 
 	if (LogMemoryContextPending)
 		ProcessLogMemoryContextInterrupt();

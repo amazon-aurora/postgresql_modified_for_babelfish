@@ -1002,6 +1002,7 @@ ParallelContextActive(void)
 void
 HandleParallelMessageInterrupt(void)
 {
+	elog(LOG, "Received HandleParallelMessageInterrupt from parallel worker");
 	InterruptPending = true;
 	ParallelMessagePending = true;
 	SetLatch(MyLatch);
@@ -1041,6 +1042,7 @@ HandleParallelMessages(void)
 
 	oldcontext = MemoryContextSwitchTo(hpm_context);
 
+	elog(LOG, "ParallelMessagePending = false");
 	/* OK to process messages.  Reset the flag saying there are more to do. */
 	ParallelMessagePending = false;
 
@@ -1077,8 +1079,10 @@ HandleParallelMessages(void)
 
 					initStringInfo(&msg);
 					appendBinaryStringInfo(&msg, data, nbytes);
+					elog(LOG, "received %d length of data", msg.len);
 					HandleParallelMessage(pcxt, i, &msg);
 					pfree(msg.data);
+					elog(LOG, "Handling done for one message");
 				}
 				else
 					ereport(ERROR,
@@ -1093,6 +1097,7 @@ HandleParallelMessages(void)
 	/* Might as well clear the context on our way out */
 	MemoryContextReset(hpm_context);
 
+	elog(LOG, "RESUME_INTERRUPTS line 1100, parallel.c");
 	RESUME_INTERRUPTS();
 }
 
@@ -1545,6 +1550,7 @@ ParallelWorkerReportLastRecEnd(XLogRecPtr last_xlog_end)
 static void
 ParallelWorkerShutdown(int code, Datum arg)
 {
+	elog(LOG, "Shutting down parallel workter");
 	SendProcSignal(ParallelLeaderPid,
 				   PROCSIG_PARALLEL_MESSAGE,
 				   ParallelLeaderBackendId);
