@@ -125,40 +125,6 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 
 	switch (nodeTag(expr))
 	{
-		case T_TSQL_UnquotedString:
-			Assert(sql_dialect == SQL_DIALECT_TSQL);
-			{
-				/* 
-				 * This means the node is an unquoted string argument in a T-SQL procedure 
-				 * call or in a parameter default declaration in a T-SQL CREATE PROCEDURE/
-				 * CREATE FUNCTION statement.
-				 * Such arguments show up in the parse tree as T_ColumnRef nodes, which 
-				 * are intercepted in transformCallStmt() and interpret_function_parameter_list()
-				 * and temporarily changed to node type T_TSQL_UnquotedString.
-				 * Below, a constant T_String node is created for this argument instead 
-				 * of a ColumnRef node, which means it will be processed as a string -- as is
-				 * the T-SQL semantic.
-				 */
-				A_Const newConst;
-
-				/* 
-				 * Get the string argument, which is pretending to be a column name at this point.
-				 */
-				ColumnRef *cref = (ColumnRef *) expr;
-				Node *colnameField = (Node *) linitial(cref->fields);			
-				char *colname = strVal(colnameField);
-
-				/*
-				 * Create a new node of type string
-				 */
-				newConst.type = T_String;
-				newConst.isnull = false;
-				newConst.location = cref->location;
-				newConst.val.sval = *(makeString(colname));
-				result = (Node *) make_const(pstate, &newConst);
-			}
-			break;
-
 		case T_ColumnRef:
 			result = transformColumnRef(pstate, (ColumnRef *) expr);
 			break;
@@ -1523,8 +1489,18 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 	targs = NIL;
 	foreach(args, fn->args)
 	{
-		targs = lappend(targs, transformExprRecurse(pstate,
+		if (sql_dialect == SQL_DIALECT_TSQL && nodeTag((Node*)lfirst(args)) == T_SetToDefault)
+		{
+			// For Tsql Default in function call, we set it to UNKNOWN in parser stage
+			// In analyzer it'll use other types to detect the right func candidate
+			((SetToDefault *)lfirst(args))->typeId = UNKNOWNOID;
+			targs = lappend(targs, (Node *) lfirst(args));
+		}
+		else
+		{
+			targs = lappend(targs, transformExprRecurse(pstate,
 													(Node *) lfirst(args)));
+		}
 	}
 
 	/*
@@ -1556,10 +1532,12 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
        */
 
       if (!schemaname || (strlen(schemaname) == 3 && strncmp(schemaname, "sys", 3) == 0))
-              if (strlen(functionname) == 8 &&
-                          strncmp(functionname, "checksum", 8) == 0 &&
-                          fn->agg_star == true)
-                      targs = ExpandChecksumStar(pstate, fn, fn->location);
+	{
+        if (strlen(functionname) == 8 &&
+            strncmp(functionname, "checksum", 8) == 0 &&
+                fn->agg_star == true)
+            targs = ExpandChecksumStar(pstate, fn, fn->location);
+	}
 
 	/* ... and hand off to ParseFuncOrColumn */
 	return ParseFuncOrColumn(pstate,

@@ -64,13 +64,9 @@ extern PGDLLIMPORT pre_transform_setop_tree_hook_type pre_transform_setop_tree_h
 typedef void (*pre_transform_setop_sort_clause_hook_type) (ParseState *pstate, Query *qry, List *sortClause, Query *leftmostQuery);
 extern PGDLLIMPORT pre_transform_setop_sort_clause_hook_type pre_transform_setop_sort_clause_hook;
 
-/* Hooks for handling unquoted string argumentss in T-SQL procedure calls */
-typedef Node* (*call_argument_unquoted_string_hook_type)(Node *arg);
-extern PGDLLIMPORT call_argument_unquoted_string_hook_type call_argument_unquoted_string_hook;
-
-typedef void (*call_argument_unquoted_string_reset_hook_type)(Node *colref_arg);
-extern PGDLLIMPORT call_argument_unquoted_string_reset_hook_type call_argument_unquoted_string_reset_hook;
-
+/* Hook for transform pivot clause in tsql select stmt */
+typedef void (*transform_pivot_clause_hook_type)(ParseState *pstate, SelectStmt *stmt);
+extern PGDLLIMPORT transform_pivot_clause_hook_type transform_pivot_clause_hook;
 
 extern Query *parse_analyze_fixedparams(RawStmt *parseTree, const char *sourceText,
 										const Oid *paramTypes, int numParams, QueryEnvironment *queryEnv);

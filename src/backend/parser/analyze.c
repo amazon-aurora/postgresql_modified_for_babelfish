@@ -88,9 +88,8 @@ pre_transform_setop_tree_hook_type pre_transform_setop_tree_hook = NULL;
 /* Hook to reset a query's targetlist after modification in pre_transfrom_sort_clause */
 pre_transform_setop_sort_clause_hook_type pre_transform_setop_sort_clause_hook = NULL;
 
-/* Hooks for handling unquoted string argumentss in T-SQL procedure calls */
-call_argument_unquoted_string_hook_type call_argument_unquoted_string_hook = NULL;
-call_argument_unquoted_string_reset_hook_type call_argument_unquoted_string_reset_hook = NULL;
+/* Hooks for transform TSQL pivot clause in select stmt */
+transform_pivot_clause_hook_type transform_pivot_clause_hook = NULL;
 
 static Query *transformOptionalSelectInto(ParseState *pstate, Node *parseTree);
 static Query *transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt);
@@ -123,7 +122,6 @@ static void transformLockingClause(ParseState *pstate, Query *qry,
 #ifdef RAW_EXPRESSION_COVERAGE_TEST
 static bool test_raw_expression_coverage(Node *node, void *context);
 #endif
-
 
 /*
  * parse_analyze_fixedparams
@@ -1369,7 +1367,6 @@ count_rowexpr_columns(ParseState *pstate, Node *expr)
 	return -1;
 }
 
-
 /*
  * transformSelectStmt -
  *	  transforms a Select Statement
@@ -1407,6 +1404,11 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 
 	/* make WINDOW info available for window functions, too */
 	pstate->p_windowdefs = stmt->windowClause;
+
+	if (stmt->isPivot && transform_pivot_clause_hook)
+	{
+		(*transform_pivot_clause_hook)(pstate, stmt);
+	}
 
 	/* process the FROM clause */
 	transformFromClause(pstate, stmt->fromClause);
@@ -3123,17 +3125,19 @@ transformCallStmt(ParseState *pstate, CallStmt *stmt)
 	targs = NIL;
 	foreach(lc, stmt->funccall->args)
 	{
-		Node *colref_arg = NULL; 
-		Node *arg = lfirst(lc);
-		if (call_argument_unquoted_string_hook) 
-			colref_arg = (*call_argument_unquoted_string_hook)(arg);
-
-		targs = lappend(targs, transformExpr(pstate,
-											 arg,
-											 EXPR_KIND_CALL_ARGUMENT));
-
-		if (call_argument_unquoted_string_reset_hook) 
-			call_argument_unquoted_string_reset_hook(colref_arg);
+		if (sql_dialect == SQL_DIALECT_TSQL && nodeTag((Node*)lfirst(lc)) == T_SetToDefault)
+		{
+			// For Tsql Default in function call, we set it to UNKNOWN in parser stage
+			// In analyzer it'll use other types to detect the right func candidate
+			((SetToDefault *)lfirst(lc))->typeId = UNKNOWNOID;
+			targs = lappend(targs, (Node *) lfirst(lc));
+		}
+		else
+		{
+			targs = lappend(targs, transformExpr(pstate,
+												(Node *) lfirst(lc),
+												EXPR_KIND_CALL_ARGUMENT));
+		}
 	}
 
 	node = ParseFuncOrColumn(pstate,
