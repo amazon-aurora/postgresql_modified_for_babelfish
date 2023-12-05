@@ -779,7 +779,6 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 	if (!isInternal)
 	{
 		ScanKeyData skeys[2];
-		SysScanDesc tgscan;
 
 		ScanKeyInit(&skeys[0],
 					Anum_pg_trigger_tgrelid,

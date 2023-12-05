@@ -371,14 +371,14 @@ bool ENRgetSystableScan(Relation rel, Oid indexId, int nkeys, ScanKey key, List 
 				* SELECT * FROM pg_depend WHERE refclassid=v1 AND refobjid=v2
 				* So we cannot return right away if there is a match.
 				*/
-				ListCell   *lc;
-				foreach(lc, enr->md.cattups[ENR_CATTUP_DEPEND]) {
-					Form_pg_depend tup = (Form_pg_depend) GETSTRUCT((HeapTuple) lfirst(lc));
+				ListCell   *lc2;
+				foreach(lc2, enr->md.cattups[ENR_CATTUP_DEPEND]) {
+					Form_pg_depend tup = (Form_pg_depend) GETSTRUCT((HeapTuple) lfirst(lc2));
 					if (indexId == DependDependerIndexId &&
 						tup->classid == (Oid)v1 &&
 						tup->objid == (Oid)v2)
 					{
-						*tuplist = list_insert_nth(*tuplist, index++, lfirst(lc));
+						*tuplist = list_insert_nth(*tuplist, index++, lfirst(lc2));
 						*tuplist_flags |= SYSSCAN_ENR_NEEDFREE;
 						found = true;
 					}
@@ -386,7 +386,7 @@ bool ENRgetSystableScan(Relation rel, Oid indexId, int nkeys, ScanKey key, List 
 						tup->refclassid == (Oid)v1 &&
 						tup->refobjid == (Oid)v2)
 					{
-						*tuplist = list_insert_nth(*tuplist, index++, lfirst(lc));
+						*tuplist = list_insert_nth(*tuplist, index++, lfirst(lc2));
 						*tuplist_flags |= SYSSCAN_ENR_NEEDFREE;
 						found = true;
 					}
@@ -395,41 +395,41 @@ bool ENRgetSystableScan(Relation rel, Oid indexId, int nkeys, ScanKey key, List 
 			}
 			else if (reloid == SharedDependRelationId)
 			{
-				ListCell   *lc;
-				foreach(lc, enr->md.cattups[ENR_CATTUP_SHDEPEND]) {
-					Form_pg_shdepend tup = (Form_pg_shdepend) GETSTRUCT((HeapTuple) lfirst(lc));
+				ListCell   *lc2;
+				foreach(lc2, enr->md.cattups[ENR_CATTUP_SHDEPEND]) {
+					Form_pg_shdepend tup = (Form_pg_shdepend) GETSTRUCT((HeapTuple) lfirst(lc2));
 					if (indexId == SharedDependDependerIndexId &&
 						tup->classid == (Oid)v1 &&
 						tup->objid == (Oid)v2) {
 						*tuplist = enr->md.cattups[ENR_CATTUP_SHDEPEND];
-						*tuplist_i = foreach_current_index(lc);
+						*tuplist_i = foreach_current_index(lc2);
 						return true;
 					}
 					else if (indexId == SharedDependReferenceIndexId &&
 							 tup->refclassid == (Oid)v1 &&
 							 tup->refobjid == (Oid)v2) {
 						*tuplist = enr->md.cattups[ENR_CATTUP_SHDEPEND];
-						*tuplist_i = foreach_current_index(lc);
+						*tuplist_i = foreach_current_index(lc2);
 						return true;
 					}
 				}
 			}
 			else if (reloid == IndexRelationId)
 			{
-				ListCell   *lc;
-				foreach(lc, enr->md.cattups[ENR_CATTUP_INDEX]) {
-					Form_pg_index tup = (Form_pg_index) GETSTRUCT((HeapTuple) lfirst(lc));
+				ListCell   *lc2;
+				foreach(lc2, enr->md.cattups[ENR_CATTUP_INDEX]) {
+					Form_pg_index tup = (Form_pg_index) GETSTRUCT((HeapTuple) lfirst(lc2));
 					if (indexId == IndexIndrelidIndexId &&
 						tup->indrelid == (Oid)v1)
 					{
-						*tuplist = list_insert_nth(*tuplist, index++, lfirst(lc));
+						*tuplist = list_insert_nth(*tuplist, index++, lfirst(lc2));
 						*tuplist_flags |= SYSSCAN_ENR_NEEDFREE;
 						found = true;
 					}
 					else if (indexId == IndexRelidIndexId &&
 							tup->indexrelid == (Oid)v1)
 					{
-						*tuplist = list_insert_nth(*tuplist, index++, lfirst(lc));
+						*tuplist = list_insert_nth(*tuplist, index++, lfirst(lc2));
 						*tuplist_flags |= SYSSCAN_ENR_NEEDFREE;
 						found = true;
 					}

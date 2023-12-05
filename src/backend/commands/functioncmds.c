@@ -2433,7 +2433,6 @@ ExecuteCallStmt(CallStmt *stmt, ParamListInfo params, bool atomic, DestReceiver 
 		TupleDesc reldesc;
 		TupleDesc retdesc;
 		int natts = 0;
-		ListCell *lc;
 		ListCell *next;
 
 		/* look up the INSERT target relation rowtype's tupdesc */
