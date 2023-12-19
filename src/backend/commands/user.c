@@ -1098,7 +1098,7 @@ DropRole(DropRoleStmt *stmt)
 	if (!have_createrole_privilege())
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 errmsg("permission denied to drop role"),
+				 errmsg("Current role %s does not have permission to drop roles", GetUserNameFromId(GetUserId(), false)),
 				 errdetail("Only roles with the %s attribute and the %s option on the target roles may drop roles.",
 						   "CREATEROLE", "ADMIN")));
 
