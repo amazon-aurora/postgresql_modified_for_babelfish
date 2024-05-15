@@ -90,6 +90,10 @@ typedef bool (*match_pltsql_func_call_hook_type) (HeapTuple proctup, int nargs, 
 												  bool *variadic, Oid *va_elem_type);
 extern PGDLLEXPORT match_pltsql_func_call_hook_type match_pltsql_func_call_hook;
 
+/* Hook to check if it's the correct babelfish datatype */
+typedef bool (*check_type_is_table_type_bbf_hook_type)(const char * typeName, Oid typid);
+extern PGDLLEXPORT check_type_is_table_type_bbf_hook_type check_type_is_table_type_bbf_hook;
+
 #define RangeVarGetRelid(relation, lockmode, missing_ok) \
 	RangeVarGetRelidExtended(relation, lockmode, \
 							 (missing_ok) ? RVR_MISSING_OK : 0, NULL, NULL)

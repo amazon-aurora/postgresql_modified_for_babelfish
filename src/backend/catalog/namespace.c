@@ -205,6 +205,7 @@ char *SYS_NAMESPACE_NAME = "sys";
 
 relname_lookup_hook_type relname_lookup_hook = NULL;
 match_pltsql_func_call_hook_type match_pltsql_func_call_hook = NULL;
+check_type_is_table_type_bbf_hook_type check_type_is_table_type_bbf_hook = NULL;
 
 
 /* Local functions */
@@ -819,8 +820,16 @@ TypenameGetTypidExtended(const char *typname, bool temp_ok)
 		typid = GetSysCacheOid2(TYPENAMENSP, Anum_pg_type_oid,
 								PointerGetDatum(typname),
 								ObjectIdGetDatum(namespaceId));
-		if (OidIsValid(typid))
+	
+		 if (OidIsValid(typid))
+		{
+			if (sql_dialect == SQL_DIALECT_TSQL && check_type_is_table_type_bbf_hook)
+			{
+				if ((*check_type_is_table_type_bbf_hook)(typname, typid))
+					continue;
+			}
 			return typid;
+		}
 	}
 
 	/* Not found in path */
