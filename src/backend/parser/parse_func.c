@@ -38,6 +38,7 @@
 
 func_select_candidate_hook_type func_select_candidate_hook = NULL;
 make_fn_arguments_from_stored_proc_probin_hook_type make_fn_arguments_from_stored_proc_probin_hook = NULL;
+inline_function_call_hook_type inline_function_call_hook = NULL;
 report_proc_not_found_error_hook_type report_proc_not_found_error_hook = NULL;
 /* Possible error codes from LookupFuncNameInternal */
 typedef enum
@@ -755,7 +756,18 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	/* build the appropriate output structure */
 	if (fdresult == FUNCDETAIL_NORMAL || fdresult == FUNCDETAIL_PROCEDURE)
 	{
-		FuncExpr   *funcexpr = makeNode(FuncExpr);
+		FuncExpr   *funcexpr = NULL;
+
+		if (sql_dialect == SQL_DIALECT_TSQL 
+			&& inline_function_call_hook
+			&& strcasecmp(strVal(llast(funcname)), "get100") == 0)
+		{
+			retval = (*inline_function_call_hook)(pstate, funcid);
+			if (retval)
+				return retval;
+		}
+
+		funcexpr = makeNode(FuncExpr);
 
 		funcexpr->funcid = funcid;
 		funcexpr->funcresulttype = rettype;
@@ -769,6 +781,8 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		
 		if (fn != NULL)
 			funcexpr->context = copyObject(fn->context);
+
+
 
 		retval = (Node *) funcexpr;
 	}

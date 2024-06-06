@@ -1522,21 +1522,21 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 												 EXPR_KIND_ORDER_BY));
 		}
 	}
-        
-      DeconstructQualifiedName(fn->funcname, &schemaname, &functionname);
 
-      /* Firstly, we check whether the schema name is null or 'sys'.
-       * When the function name is checksum, we check if the argument is '*',
-       * if yes, then we traverse the table and get the column names from the
-       * table. We replace the argument '*' with the list of column names.
-       */
+		DeconstructQualifiedName(fn->funcname, &schemaname, &functionname);
 
-      if (!schemaname || (strlen(schemaname) == 3 && strncmp(schemaname, "sys", 3) == 0))
+	/*
+	 * Firstly, we check whether the schema name is null or 'sys'.
+	 * When the function name is checksum, we check if the argument is '*',
+	 * if yes, then we traverse the table and get the column names from the
+	 * table. We replace the argument '*' with the list of column names.
+	 */
+	if (!schemaname || (strlen(schemaname) == 3 && strncmp(schemaname, "sys", 3) == 0))
 	{
-        if (strlen(functionname) == 8 &&
-            strncmp(functionname, "checksum", 8) == 0 &&
-                fn->agg_star == true)
-            targs = ExpandChecksumStar(pstate, fn, fn->location);
+		if (strlen(functionname) == 8 &&
+			strncmp(functionname, "checksum", 8) == 0 &&
+				fn->agg_star == true)
+			targs = ExpandChecksumStar(pstate, fn, fn->location);
 	}
 
 	/* ... and hand off to ParseFuncOrColumn */
