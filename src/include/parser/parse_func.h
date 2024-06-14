@@ -79,7 +79,7 @@ typedef FuncCandidateList (*func_select_candidate_hook_type) (int nargs, Oid *in
 typedef void (*make_fn_arguments_from_stored_proc_probin_hook_type)(ParseState *pstate,List *fargs,Oid *actual_arg_types,Oid *declared_arg_types,Oid funcid);
 extern PGDLLEXPORT make_fn_arguments_from_stored_proc_probin_hook_type make_fn_arguments_from_stored_proc_probin_hook;
 
-typedef Node * (*inline_function_call_hook_type)(ParseState *pstate, Oid funcoid);
+typedef Node * (*inline_function_call_hook_type)(ParseState *pstate, FuncExpr *func);
 extern PGDLLEXPORT inline_function_call_hook_type inline_function_call_hook;
 
 typedef void (*report_proc_not_found_error_hook_type) (List *names, List *argnames, int nargs, ParseState *pstate, int location, bool proc_call);

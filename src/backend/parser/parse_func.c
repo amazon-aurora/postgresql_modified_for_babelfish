@@ -758,17 +758,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	{
 		FuncExpr   *funcexpr = NULL;
 
-		if (sql_dialect == SQL_DIALECT_TSQL 
-			&& inline_function_call_hook
-			&& strcasecmp(strVal(llast(funcname)), "get100") == 0)
-		{
-			retval = (*inline_function_call_hook)(pstate, funcid);
-			if (retval)
-				return retval;
-		}
-
 		funcexpr = makeNode(FuncExpr);
-
 		funcexpr->funcid = funcid;
 		funcexpr->funcresulttype = rettype;
 		funcexpr->funcretset = retset;
@@ -782,7 +772,32 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		if (fn != NULL)
 			funcexpr->context = copyObject(fn->context);
 
+		/* Inline the function if possible */
+		if (inline_function_call_hook && sql_dialect == SQL_DIALECT_TSQL &&
+			strcasecmp(strVal(llast(funcname)), "foo") == 0)
+		{
+			// /* Forget it if it has any showstopper properties */
+			// if (fdresult != FUNCDETAIL_NORMAL ||
+			// 	funcexpr->funcretset ||
+			// 	funcexpr->funcresulttype == RECORDOID)
+			// {
+			// 	;
+			// }
+			// else
+			// {
+			// 	if (strcasecmp(strVal(llast(funcname)), "foo") == 0)			// tmp check for debugging
+			// 	{
+			// 		Assert(0);
+			// 		retval = (*inline_function_call_hook)(pstate, funcexpr);
+			// 	}
 
+			// 	inlined_function = (retval != NULL);
+			// }
+			retval = (*inline_function_call_hook)(pstate, funcexpr);
+			if (retval)
+				return (Node *) retval;
+
+		}
 
 		retval = (Node *) funcexpr;
 	}
