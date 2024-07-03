@@ -57,6 +57,7 @@
 #include "common/connect.h"
 #include "common/int.h"
 #include "dump_babel_utils.h"
+#include "common/int.h"
 #include "common/relpath.h"
 #include "compress_io.h"
 #include "dumputils.h"
