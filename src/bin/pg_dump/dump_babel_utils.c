@@ -1676,8 +1676,13 @@ castSqlvariantToBasetype(PGresult *res,
 		archputs("array[", fout);
 		for (i = 0; i < nitems; i++)
 		{
-			/* dump each values after adding explicit cast to basetype */
+			/*
+			 * Add explicit cast to sql_variant before dumping the
+			 * values which will have cast to its basetype.
+			 */
+			archputs("CAST(", fout);
 			castSqlvariantToBasetypeHelper(fout, value_items[i], type_items[i], atoi(datalength_items[i]));
+			archputs(" AS \"sys\".\"sql_variant\")", fout);
 			if (i != nitems - 1)
 				archputs(", ", fout);
 		}
