@@ -35,7 +35,7 @@ typedef enum {
 
 static babelfish_status bbf_status = NONE;
 
-static char default_bbf_roles[] = "('sysadmin', 'bbf_role_admin', "
+static char default_bbf_roles[] = "('sysadmin', 'bbf_role_admin', 'securityadmin', "
 								  "'master_dbo', 'master_db_owner', 'master_guest', "
 								  "'msdb_dbo', 'msdb_db_owner', 'msdb_guest', "
 								  "'tempdb_dbo', 'tempdb_db_owner', 'tempdb_guest')";
