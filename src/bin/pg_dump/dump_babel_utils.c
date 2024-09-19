@@ -1155,10 +1155,14 @@ addFromClauseForPhysicalDatabaseDump(PQExpBuffer buf, TableInfo *tbinfo)
 						  "'msdb_dbo', 'msdb_db_owner', 'msdb_guest')",
 						  fmtQualifiedDumpable(tbinfo));
 	}
+	/* 
+	 * Do not dump sysadmin, bbf_role_admin, securityadmin,
+	 * dbcreator and Babelfish initialize user 
+	 */
 	else if(strcmp(tbinfo->dobj.name, "babelfish_authid_login_ext") == 0)
 		appendPQExpBuffer(buf, " FROM ONLY %s a "
 						"WHERE a.rolname NOT IN ('sysadmin', 'bbf_role_admin', "
-						"'securityadmin', '%s')", /* Do not dump sysadmin, bbf_role_admin, securityadmin and Babelfish initialize user */
+						"'securityadmin', 'dbcreator', '%s')",
 						fmtQualifiedDumpable(tbinfo), babel_init_user);
 	else if(strcmp(tbinfo->dobj.name, "babelfish_domain_mapping") == 0 ||
 			strcmp(tbinfo->dobj.name, "babelfish_function_ext") == 0 ||
