@@ -227,8 +227,7 @@ getBabelfishRolesQuery(PGconn *conn, PQExpBuffer buf, char *role_catalog,
 		pfree(babel_init_user);
 	}
 	appendPQExpBufferStr(buf,
-						 "SELECT rolname FROM sys.babelfish_authid_user_ext "
-						 "UNION ");
+						 "SELECT rolname FROM sys.babelfish_authid_user_ext ");
 	/* Only dump users of the specific logical database we are currently dumping. */
 	if (bbf_db_name != NULL)
 	{
@@ -239,15 +238,13 @@ getBabelfishRolesQuery(PGconn *conn, PQExpBuffer buf, char *role_catalog,
 		char *escaped_bbf_db_name = pg_malloc(2 * strlen(bbf_db_name) + 1);
 
 		PQescapeString(escaped_bbf_db_name, bbf_db_name, strlen(bbf_db_name));
-		appendPQExpBuffer(buf,
-						  "WHERE database_name = '%s' "
-						  "UNION ",
-						  escaped_bbf_db_name);
+		appendPQExpBuffer(buf, "WHERE database_name = '%s' ", escaped_bbf_db_name);
 		pfree(escaped_bbf_db_name);
 	}
 
 	/* Append roles associated with db_owner members which are not present in bbf catalogs */
 	appendPQExpBuffer(buf,
+					  "UNION "
 					  "SELECT pr.rolname "
 					  "FROM ( "
 					  "SELECT DISTINCT pr.rolname AS member_role "
@@ -348,9 +345,7 @@ getBabelfishRoleMembershipQuery(PGconn *conn, PQExpBuffer buf,
 							 "SELECT 'securityadmin' AS rolname UNION "
 							 "SELECT 'dbcreator' AS rolname UNION ");
 	appendPQExpBuffer(buf,
-					  "SELECT rolname FROM sys.babelfish_authid_user_ext "
-					  "UNION ");
-
+					  "SELECT rolname FROM sys.babelfish_authid_user_ext ");
 	/* Only dump users of the specific logical database we are currently dumping. */
 	if (bbf_db_name != NULL)
 	{
@@ -361,15 +356,13 @@ getBabelfishRoleMembershipQuery(PGconn *conn, PQExpBuffer buf,
 		char *escaped_bbf_db_name = pg_malloc(2 * strlen(bbf_db_name) + 1);
 
 		PQescapeString(escaped_bbf_db_name, bbf_db_name, strlen(bbf_db_name));
-		appendPQExpBuffer(buf,
-						  "WHERE database_name = '%s' "
-						  "UNION ",
-						  escaped_bbf_db_name);
+		appendPQExpBuffer(buf, "WHERE database_name = '%s' ", escaped_bbf_db_name);
 		pfree(escaped_bbf_db_name);
 	}
 
 		/* Append roles associated with db_owner members which are not present in bbf catalogs */
 	appendPQExpBuffer(buf,
+					  "UNION "
 					  "SELECT pr.rolname "
 					  "FROM ( "
 					  "SELECT DISTINCT pr.rolname AS member_role "
