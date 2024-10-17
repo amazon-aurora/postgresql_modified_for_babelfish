@@ -504,8 +504,28 @@ fixTsqlDefaultExpr(Archive *fout, AttrDefInfo *attrDefInfo)
 	char *runtimeErrStr = "'An empty or space-only string cannot be converted into numeric/decimal data type'";
 	char *atttypname;
 
-	if (!isBabelfishDatabase(fout) ||
-		!strstr(source, runtimeErrStr) ||
+	/* 
+	 * We need to re-write the decompiled DEFAULT expression for non-default
+	 * database level collation. Else, pg_dump adds explicit COLLATE clause
+	 * after the DEFAULT expression as well. This creates two explicit
+	 * COLLATE clause during dump -
+	 * 	1. For the column itself
+	 * 	2. For the default expression
+	 * Eg: CREATE TABLE t1(a nvarchar(11) DEFAULT 'default') --> 
+	 * CREATE TABLE t1("a" "sys"."nvarchar" DEFAULT 'default'::"sys"."varchar" COLLATE <non_default_collation> COLLATE <non_default_collation>)
+	 * This is an invalid syntax, hence it will fail during restore.
+	 * Hence we re-write it to:
+	 * CREATE TABLE t1("a" "sys"."nvarchar" DEFAULT ('default'::"sys"."varchar" COLLATE <non_default_collation>) COLLATE <non_default_collation>)
+	 * by adding parenthesis. As adding parenthesis is optional in PG, 
+	 * we update all such default expressions for babelfish
+	 */
+	if (!isBabelfishDatabase(fout))
+		return;
+	attrDefInfo->adef_expr = psprintf("(%s)", source);
+	free(source);
+	source = attrDefInfo->adef_expr;
+
+	if (!strstr(source, runtimeErrStr) ||
 		strstr(source, runtimeErrFunc) ||
 		attrDefInfo->adnum < 1)
 		return;
@@ -1955,4 +1975,50 @@ dumpBabelfishConstrIndex(Archive *fout, const IndxInfo *indxinfo,
 					  fmtQualifiedDumpable(tbinfo));
 	appendPQExpBuffer(delq, "DROP CONSTRAINT %s;\n",
 					  fmtId(constrinfo->dobj.name));
+}
+
+void
+dumpBabelPhysicalDatabaseACLs(Archive *fout)
+{
+	PQExpBuffer	query;
+
+	if (!isBabelfishDatabase(fout) || fout->dopt->binary_upgrade)
+		return;
+
+	query = createPQExpBuffer();
+
+	appendPQExpBuffer(query,
+					"DO $$"
+					"\nDECLARE"
+					"\n	rolname TEXT;"
+					"\n	original_name TEXT;"
+					"\nBEGIN"
+					"\n	SET LOCAL ROLE sysadmin;"
+					"\n	FOR rolname, original_name IN ("
+					"\n		SELECT a.rolname, a.orig_username FROM sys.babelfish_authid_user_ext a"
+					"\n			WHERE orig_username IN ('dbo') AND"
+					"\n			database_name NOT IN ('master', 'tempdb', 'msdb')");
+
+	if (bbf_db_name)
+		appendPQExpBuffer(query,
+					"\n			 AND database_name = '%s'", escaped_bbf_db_name);
+
+	appendPQExpBuffer(query,
+					"\n	) LOOP"
+					"\n		CASE WHEN original_name = 'dbo' THEN"
+					"\n			EXECUTE format('GRANT CREATE, CONNECT, TEMPORARY ON DATABASE \"%%s\" TO \"%%s\"; ', CURRENT_DATABASE(), rolname);"
+					"\n		END CASE;"
+					"\n	END LOOP;"
+					"\n	RESET ROLE;"
+					"\nEND$$;\n\n");
+
+	ArchiveEntry(fout, nilCatalogId, createDumpId(),
+				 ARCHIVE_OPTS(.tag = "BABELFISHDATABASEACLS",
+							  .description = "BABELFISHDATABASEACLS",
+							  .section = SECTION_POST_DATA,
+							  .createStmt = query->data));
+
+	destroyPQExpBuffer(query);
+
+	return;
 }
