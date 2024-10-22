@@ -1618,8 +1618,7 @@ CloseServerPorts(int status, Datum arg)
 	 * condition if a new postmaster wants to re-use the TCP port number.
 	 */
 	for (i = 0; i < NumListenSockets; i++) {
-		if ((ListenConfig[i]->fn_close)(ListenSockets[i]) != 0)
-			elog(LOG, "could not close listen socket: %m");
+		(ListenConfig[i]->fn_close)(ListenSockets[i]);
 		ListenConfig[i] = NULL;
 	}
 	NumListenSockets = 0;
@@ -2730,9 +2729,7 @@ ClosePostmasterPorts(bool am_syslogger)
 	{
 		for (int i = 0; i < NumListenSockets; i++) 
 		{
-			if ((ListenConfig[i]->fn_close)(ListenSockets[i]) != 0)
-				elog(LOG, "could not close listen socket: %m");
-
+			(ListenConfig[i]->fn_close)(ListenSockets[i]);
 			ListenConfig[i] = NULL;
 		}
 		pfree(ListenSockets);
