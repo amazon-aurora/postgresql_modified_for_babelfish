@@ -621,7 +621,8 @@ ExecInitInsertProjection(ModifyTableState *mtstate,
  */
 static void
 ExecInitUpdateProjection(ModifyTableState *mtstate,
-						 ResultRelInfo *resultRelInfo)
+						 ResultRelInfo *resultRelInfo,
+						 bool evalTargetList)
 {
 	ModifyTable *node = (ModifyTable *) mtstate->ps.plan;
 	Plan	   *subplan = outerPlan(node);
@@ -661,7 +662,7 @@ ExecInitUpdateProjection(ModifyTableState *mtstate,
 
 	resultRelInfo->ri_projectNew =
 		ExecBuildUpdateProjection(subplan->targetlist,
-								  false || sql_dialect == SQL_DIALECT_TSQL,	/* subplan did the evaluation */
+								  evalTargetList,	/* subplan did the evaluation */
 								  updateColnos,
 								  relDesc,
 								  mtstate->ps.ps_ExprContext,
@@ -1923,7 +1924,7 @@ ExecCrossPartitionUpdate(ModifyTableContext *context,
 
 			/* ... but first, make sure ri_oldTupleSlot is initialized. */
 			if (unlikely(!resultRelInfo->ri_projectNewInfoValid))
-				ExecInitUpdateProjection(mtstate, resultRelInfo);
+				ExecInitUpdateProjection(mtstate, resultRelInfo, false);
 			oldSlot = resultRelInfo->ri_oldTupleSlot;
 			if (!table_tuple_fetch_row_version(resultRelInfo->ri_RelationDesc,
 											   tupleid,
@@ -2512,7 +2513,7 @@ redo_act:
 							/* Make sure ri_oldTupleSlot is initialized. */
 							if (unlikely(!resultRelInfo->ri_projectNewInfoValid))
 								ExecInitUpdateProjection(context->mtstate,
-														 resultRelInfo);
+														 resultRelInfo, false);
 
 							/* Fetch the most recent version of old tuple. */
 							oldSlot = resultRelInfo->ri_oldTupleSlot;
@@ -4123,8 +4124,8 @@ ExecModifyTable(PlanState *pstate)
 
 			case CMD_UPDATE:
 				/* Initialize projection info if first time for this table */
-				if (unlikely(!resultRelInfo->ri_projectNewInfoValid) || sql_dialect == SQL_DIALECT_TSQL)
-					ExecInitUpdateProjection(node, resultRelInfo);
+				if (unlikely(!resultRelInfo->ri_projectNewInfoValid))
+					ExecInitUpdateProjection(node, resultRelInfo, (sql_dialect == SQL_DIALECT_TSQL && resultRelInfo->ri_projectReturning));
 
 				/*
 				 * Make the new tuple by combining plan's output tuple with
@@ -4174,7 +4175,10 @@ ExecModifyTable(PlanState *pstate)
 
 				if (sql_dialect == SQL_DIALECT_TSQL && resultRelInfo->ri_projectReturning)
 				{
+					ModifyTableState *mtstate = context.mtstate;
+					ExprContext *econtext = mtstate->ps.ps_ExprContext;
 					rslot = ExecProcessReturning(resultRelInfo, oldSlot, context.planSlot);
+					econtext->ecxt_innertuple = context.planSlot;
 				}
 
 				slot = ExecGetUpdateNewTuple(resultRelInfo, context.planSlot,
