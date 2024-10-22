@@ -28,6 +28,12 @@ jobs:
         with:
           name: regression-summary
           path: src/test/**/regression.out
+      - name: Upload postmaster log
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: postmaster-log
+          path: src/test/regress/log/postmaster.log
       - name: upload-test-differences
         if: failure()
         uses: actions/upload-artifact@v4
