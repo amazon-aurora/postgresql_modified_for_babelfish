@@ -44,7 +44,7 @@ static char default_bbf_roles[] = "('sysadmin', 'bbf_role_admin', 'securityadmin
                                   "'msdb_db_datareader', 'msdb_db_datawriter', "
                                   "'tempdb_dbo', 'tempdb_db_owner', 'tempdb_guest', "
                                   "'tempdb_db_accessadmin', 'tempdb_db_securityadmin', "
-                                  "'tempdb_db_datareader', 'tempdb_db_datawriter') ;
+                                  "'tempdb_db_datareader', 'tempdb_db_datawriter')" ;
 
 /*
  * Run a query, return the results, exit program on failure.
