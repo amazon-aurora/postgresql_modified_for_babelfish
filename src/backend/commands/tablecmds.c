@@ -826,6 +826,12 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("only shared relations can be placed in pg_global tablespace")));
 
+
+	if (pltsql_get_object_owner_hook && !OidIsValid(ownerId))
+	{
+		ownerId = (*pltsql_get_object_owner_hook)(namespaceId, ownerId);
+	}
+
 	/* Identify user ID that will own the table */
 	if (!OidIsValid(ownerId))
 		ownerId = GetUserId();
@@ -6465,7 +6471,7 @@ ATSimplePermissions(AlterTableType cmdtype, Relation rel, int allowed_targets)
 	}
 
 	/* Permissions checks */
-	if (!object_ownercheck(RelationRelationId, RelationGetRelid(rel), GetUserId()))
+	if (!object_ownercheck(RelationRelationId, RelationGetRelid(rel), GetUserId()) && !IS_BBF_DB_DDLADMIN(RelationRelationId, RelationGetNamespace(rel)))
 		aclcheck_error(ACLCHECK_NOT_OWNER, get_relkind_objtype(rel->rd_rel->relkind),
 					   RelationGetRelationName(rel));
 
@@ -17284,7 +17290,7 @@ RangeVarCallbackForAlterRelation(const RangeVar *rv, Oid relid, Oid oldrelid,
 	relkind = classform->relkind;
 
 	/* Must own relation. */
-	if (!object_ownercheck(RelationRelationId, relid, GetUserId()))
+	if (!object_ownercheck(RelationRelationId, relid, GetUserId()) && !IS_BBF_DB_DDLADMIN(RelationRelationId, classform->relnamespace))
 		aclcheck_error(ACLCHECK_NOT_OWNER, get_relkind_objtype(get_rel_relkind(relid)), rv->relname);
 
 	/* No system table modifications unless explicitly allowed. */
