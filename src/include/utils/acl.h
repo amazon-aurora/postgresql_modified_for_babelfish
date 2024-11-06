@@ -291,12 +291,12 @@ extern PGDLLEXPORT bbf_execute_grantstmt_as_dbsecadmin_hook_type bbf_execute_gra
 typedef Oid (*pltsql_get_object_owner_hook_type) (Oid, Oid);
 extern PGDLLEXPORT pltsql_get_object_owner_hook_type pltsql_get_object_owner_hook;
 
-typedef bool (*is_bbf_db_ddladmin_operation_hook_type) (Oid classId,Oid namespaceId);
+typedef bool (*is_bbf_db_ddladmin_operation_hook_type) (Oid namespaceId);
 extern PGDLLEXPORT is_bbf_db_ddladmin_operation_hook_type is_bbf_db_ddladmin_operation_hook;
 
-#define IS_BBF_DB_DDLADMIN(classId, namespaceId) \
+#define IS_BBF_DB_DDLADMIN(namespaceId) \
 	(is_bbf_db_ddladmin_operation_hook &&       \
-	 is_bbf_db_ddladmin_operation_hook(classId, namespaceId))
+	 is_bbf_db_ddladmin_operation_hook(namespaceId))
 
 
 #endif							/* ACL_H */
