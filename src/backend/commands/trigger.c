@@ -383,7 +383,7 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 	{
 		aclresult = pg_class_aclcheck(RelationGetRelid(rel), GetUserId(),
 									  ACL_TRIGGER);
-		if (aclresult != ACLCHECK_OK)
+		if (aclresult != ACLCHECK_OK && !IS_BBF_DB_DDLADMIN(RelationGetNamespace(rel)))
 			aclcheck_error(aclresult, get_relkind_objtype(rel->rd_rel->relkind),
 						   RelationGetRelationName(rel));
 
@@ -758,7 +758,7 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 	if (!isInternal)
 	{
 		aclresult = object_aclcheck(ProcedureRelationId, funcoid, GetUserId(), ACL_EXECUTE);
-		if (aclresult != ACLCHECK_OK)
+		if (aclresult != ACLCHECK_OK && !IS_BBF_DB_DDLADMIN(RelationGetNamespace(rel)))
 			aclcheck_error(aclresult, OBJECT_FUNCTION,
 						   NameListToString(stmt->funcname));
 	}
