@@ -1630,7 +1630,8 @@ RangeVarCallbackForDropRelation(const RangeVar *rel, Oid relOid, Oid oldRelOid,
 
 	/* Allow DROP to either table owner or schema owner */
 	if (!object_ownercheck(RelationRelationId, relOid, GetUserId()) &&
-		!object_ownercheck(NamespaceRelationId, classform->relnamespace, GetUserId()))
+		!object_ownercheck(NamespaceRelationId, classform->relnamespace, GetUserId()) &&
+		!IS_BBF_DB_DDLADMIN(classform->relnamespace))
 		aclcheck_error(ACLCHECK_NOT_OWNER,
 					   get_relkind_objtype(classform->relkind),
 					   rel->relname);
