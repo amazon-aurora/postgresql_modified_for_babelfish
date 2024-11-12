@@ -17255,7 +17255,7 @@ RangeVarCallbackOwnsRelation(const RangeVar *relation,
 	if (!HeapTupleIsValid(tuple))	/* should not happen */
 		elog(ERROR, "cache lookup failed for relation %u", relId);
 
-	if (!object_ownercheck(RelationRelationId, relId, GetUserId()))
+	if (!object_ownercheck(RelationRelationId, relId, GetUserId()) && !IS_BBF_DB_DDLADMIN(get_rel_namespace(relId)))
 		aclcheck_error(ACLCHECK_NOT_OWNER, get_relkind_objtype(get_rel_relkind(relId)),
 					   relation->relname);
 
