@@ -1576,7 +1576,8 @@ RangeVarCallbackForRenameTrigger(const RangeVar *rv, Oid relid, Oid oldrelid,
 				 errdetail_relkind_not_supported(form->relkind)));
 
 	/* you must own the table to rename one of its triggers */
-	if (!object_ownercheck(RelationRelationId, relid, GetUserId()) && !IS_BBF_DB_DDLADMIN(get_rel_namespace(relid)))
+	if (!object_ownercheck(RelationRelationId, relid, GetUserId()) &&
+		!IS_BBF_DB_DDLADMIN(get_rel_namespace(relid)))
 		aclcheck_error(ACLCHECK_NOT_OWNER, get_relkind_objtype(get_rel_relkind(relid)), rv->relname);
 	if (!allowSystemTableMods && IsSystemClass(relid, form))
 		ereport(ERROR,

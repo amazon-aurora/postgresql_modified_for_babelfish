@@ -111,8 +111,8 @@ RemoveObjects(DropStmt *stmt)
 		namespaceId = get_object_namespace(&address);
 		if ((!OidIsValid(namespaceId) ||
 			!object_ownercheck(NamespaceRelationId, namespaceId, GetUserId())) &&
-			(!OidIsValid(namespaceId) || !IS_BBF_DB_DDLADMIN(namespaceId)) &&
-			(relation == NULL || !IS_BBF_DB_DDLADMIN(RelationGetNamespace(relation))))
+			!(OidIsValid(namespaceId) && IS_BBF_DB_DDLADMIN(namespaceId)) &&
+			!(relation != NULL && IS_BBF_DB_DDLADMIN(RelationGetNamespace(relation))))
 			check_object_ownership(GetUserId(), stmt->removeType, address,
 								   object, relation);
 
