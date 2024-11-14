@@ -758,7 +758,7 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 	if (!isInternal)
 	{
 		aclresult = object_aclcheck(ProcedureRelationId, funcoid, GetUserId(), ACL_EXECUTE);
-		if (aclresult != ACLCHECK_OK && !IS_BBF_DB_DDLADMIN(RelationGetNamespace(rel)))
+		if (aclresult != ACLCHECK_OK && !IS_BBF_DB_DDLADMIN(get_func_namespace(funcoid)))
 			aclcheck_error(aclresult, OBJECT_FUNCTION,
 						   NameListToString(stmt->funcname));
 	}
