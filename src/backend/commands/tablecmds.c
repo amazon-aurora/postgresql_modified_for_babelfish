@@ -11771,7 +11771,7 @@ checkFkeyPermissions(Relation rel, int16 *attnums, int natts)
 	/* Okay if we have relation-level REFERENCES permission */
 	aclresult = pg_class_aclcheck(RelationGetRelid(rel), roleid,
 								  ACL_REFERENCES);
-	if (aclresult == ACLCHECK_OK)
+	if (aclresult == ACLCHECK_OK || IS_BBF_DB_DDLADMIN(RelationGetNamespace(rel)))
 		return;
 	/* Else we must have REFERENCES on each column */
 	for (i = 0; i < natts; i++)
