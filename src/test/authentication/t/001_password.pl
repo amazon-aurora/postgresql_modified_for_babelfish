@@ -116,8 +116,8 @@ SKIP:
 	my $session = $node->interactive_psql('postgres');
 
 	$session->set_query_timer_restart();
-	$session->query("SET password_encryption='scram-sha-256';");
-	$session->query("SET scram_iterations=42;");
+	$session->query(qq(SET password_encryption='scram-sha-256';));
+	$session->query(qq(SET scram_iterations=42;));
 	$session->query_until(qr/Enter new password/,
 		"\\password scram_role_iter\n");
 	$session->query_until(qr/Enter it again/, "pass\n");
