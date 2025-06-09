@@ -173,6 +173,7 @@ static void recordExtensionInitPrivWorker(Oid objoid, Oid classoid, int objsubid
 
 tsql_has_linked_srv_permissions_hook_type tsql_has_linked_srv_permissions_hook = NULL;
 bbf_execute_grantstmt_as_dbsecadmin_hook_type bbf_execute_grantstmt_as_dbsecadmin_hook = NULL;
+update_bbf_schema_permissions_catalog_hook_type update_bbf_schema_permissions_catalog_hook = NULL;
 pltsql_allow_storing_init_privs_hook_type pltsql_allow_storing_init_privs_hook = NULL;
 /*
  * If is_grant is true, adds the given privileges for the list of
@@ -2040,7 +2041,7 @@ ExecGrant_Relation(InternalGrant *istmt)
 			{
 				(*bbf_execute_grantstmt_as_dbsecadmin_hook) (objtype, relOid, ownerId, this_privileges, &grantorId, &avail_goptions);
 			}
-
+			
 			/*
 			 * Restrict the privileges to what we can actually grant, and emit
 			 * the standards-mandated warning and error messages.
@@ -2052,6 +2053,16 @@ ExecGrant_Relation(InternalGrant *istmt)
 										 NameStr(pg_class_tuple->relname),
 										 0, NULL);
 
+			/* Call the hook to add the permission in bbf_schema_permissions catalog 
+			*  If the hook returns false, indicates that object-level and schema-level grants both are present and schema-level grant is revoked.
+			*  In such case we remove schema-level entry from the bbf_schema_permissions catalog but skip the execution of revoke as object-level grants exist.
+			*/
+			if (update_bbf_schema_permissions_catalog_hook && !(*update_bbf_schema_permissions_catalog_hook) (this_privileges, istmt->is_grant, istmt->grantees,
+				istmt->col_privs, pg_class_tuple->oid, GetUserNameFromId(grantorId, false), 
+				istmt->grant_option, GetUserNameFromId(ownerId, false), istmt->objtype))
+			{
+				return;
+			}							 
 			/*
 			 * Generate new ACL.
 			 */
@@ -2258,6 +2269,7 @@ ExecGrant_common(InternalGrant *istmt, Oid classid, AclMode default_privs,
 			(*bbf_execute_grantstmt_as_dbsecadmin_hook) (get_object_type(classid, objectid), objectid, ownerId, istmt->privileges, &grantorId, &avail_goptions);
 		}
 
+
 		nameDatum = SysCacheGetAttrNotNull(cacheid, tuple,
 										   get_object_attnum_name(classid));
 
@@ -2271,6 +2283,17 @@ ExecGrant_common(InternalGrant *istmt, Oid classid, AclMode default_privs,
 									 objectid, grantorId, get_object_type(classid, objectid),
 									 NameStr(*DatumGetName(nameDatum)),
 									 0, NULL);
+
+		/* Call the hook to add the permission in bbf_schema_permissions catalog 
+		*  If the hook returns false, indicates that object-level and schema-level grants both are present and schema-level grant is revoked.
+		*  In such case we remove schema-level entry from the bbf_schema_permissions catalog but skip the execution of revoke as object-level grants exist.
+		*/
+		if ((istmt->objtype == OBJECT_PROCEDURE || istmt->objtype == OBJECT_FUNCTION) && update_bbf_schema_permissions_catalog_hook && !(*update_bbf_schema_permissions_catalog_hook) (this_privileges, istmt->is_grant, istmt->grantees,
+				istmt->col_privs, objectid, GetUserNameFromId(grantorId, false), 
+			istmt->grant_option, GetUserNameFromId(ownerId, false), istmt->objtype))
+		{
+			return;
+		}
 
 		/*
 		 * Generate new ACL.

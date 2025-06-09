@@ -312,6 +312,9 @@ extern PGDLLEXPORT pltsql_allow_storing_init_privs_hook_type pltsql_allow_storin
 typedef bool (*bbf_check_member_has_direct_priv_to_grant_role_hook_type) (Oid, Oid);
 extern PGDLLEXPORT bbf_check_member_has_direct_priv_to_grant_role_hook_type bbf_check_member_has_direct_priv_to_grant_role_hook;
 
+typedef bool (*update_bbf_schema_permissions_catalog_hook_type) (AclMode , bool, List*, List*, Oid, const char*, bool, const char*, ObjectType);
+extern PGDLLEXPORT update_bbf_schema_permissions_catalog_hook_type update_bbf_schema_permissions_catalog_hook;
+
 #define IS_BBF_DB_DDLADMIN(namespaceId) \
 	(is_bbf_db_ddladmin_operation_hook &&       \
 	 is_bbf_db_ddladmin_operation_hook(namespaceId))
