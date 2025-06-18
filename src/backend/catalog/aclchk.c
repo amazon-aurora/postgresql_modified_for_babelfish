@@ -2061,6 +2061,13 @@ ExecGrant_Relation(InternalGrant *istmt)
 				istmt->col_privs, pg_class_tuple->oid, GetUserNameFromId(grantorId, false), 
 				istmt->grant_option, GetUserNameFromId(ownerId, false), istmt->objtype))
 			{
+				pfree(old_rel_acl);
+				pfree(col_privileges);
+				if (!is_enr)
+					UnlockTuple(relation, &tuple->t_self, InplaceUpdateTupleLock);
+				ReleaseSysCache(tuple);
+				table_close(attRelation, RowExclusiveLock);
+				table_close(relation, RowExclusiveLock);
 				return;
 			}							 
 			/*
@@ -2288,10 +2295,14 @@ ExecGrant_common(InternalGrant *istmt, Oid classid, AclMode default_privs,
 		*  If the hook returns false, indicates that object-level and schema-level grants both are present and schema-level grant is revoked.
 		*  In such case we remove schema-level entry from the bbf_schema_permissions catalog but skip the execution of revoke as object-level grants exist.
 		*/
-		if ((istmt->objtype == OBJECT_PROCEDURE || istmt->objtype == OBJECT_FUNCTION) && update_bbf_schema_permissions_catalog_hook && !(*update_bbf_schema_permissions_catalog_hook) (this_privileges, istmt->is_grant, istmt->grantees,
+		if (update_bbf_schema_permissions_catalog_hook && !(*update_bbf_schema_permissions_catalog_hook) (this_privileges, istmt->is_grant, istmt->grantees,
 				istmt->col_privs, objectid, GetUserNameFromId(grantorId, false), 
 			istmt->grant_option, GetUserNameFromId(ownerId, false), istmt->objtype))
 		{
+			if (!is_enr)
+				UnlockTuple(relation, &tuple->t_self, InplaceUpdateTupleLock);
+			ReleaseSysCache(tuple);
+			table_close(relation, RowExclusiveLock);
 			return;
 		}
 
