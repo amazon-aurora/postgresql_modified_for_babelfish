@@ -806,6 +806,7 @@ FastPathStrongRelationLockData
 FdwInfo
 FdwRoutine
 FetchDirection
+FetchDirectionKeywords
 FetchStmt
 FieldSelect
 FieldStore
