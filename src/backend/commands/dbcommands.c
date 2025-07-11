@@ -573,7 +573,7 @@ CreateDatabaseUsingFileCopy(Oid src_dboid, Oid dst_dboid, Oid src_tsid,
 	 */
 	if (!IsBinaryUpgrade)
 		RequestCheckpoint(CHECKPOINT_IMMEDIATE | CHECKPOINT_FORCE |
-						  CHECKPOINT_WAIT | CHECKPOINT_FLUSH_ALL);
+						  CHECKPOINT_WAIT | CHECKPOINT_FLUSH_UNLOGGED);
 
 	/*
 	 * Iterate through all tablespaces of the template database, and copy each
@@ -2133,7 +2133,7 @@ movedb(const char *dbname, const char *tblspcname)
 	 * files, which would cause rmdir() to fail.
 	 */
 	RequestCheckpoint(CHECKPOINT_IMMEDIATE | CHECKPOINT_FORCE | CHECKPOINT_WAIT
-					  | CHECKPOINT_FLUSH_ALL);
+					  | CHECKPOINT_FLUSH_UNLOGGED);
 
 	/* Close all smgr fds in all backends. */
 	WaitForProcSignalBarrier(EmitProcSignalBarrier(PROCSIGNAL_BARRIER_SMGRRELEASE));
