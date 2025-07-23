@@ -2567,6 +2567,8 @@ RestrictInfo
 Result
 ResultRelInfo
 ResultState
+RetainDeadTuplesData
+RetainDeadTuplesPhase
 ReturnSetInfo
 ReturnStmt
 ReturningClause
