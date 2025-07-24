@@ -1251,6 +1251,7 @@ ProcessUtilitySlow(ParseState *pstate,
 							wrapper->utilityStmt = stmt;
 							wrapper->stmt_location = pstmt->stmt_location;
 							wrapper->stmt_len = pstmt->stmt_len;
+							wrapper->cached_plan_type = PLAN_CACHE_NONE;
 
 							ProcessUtility(wrapper,
 										   queryString,
@@ -1987,6 +1988,7 @@ ProcessUtilityForAlterTable(Node *stmt, AlterTableUtilityContext *context)
 	wrapper->utilityStmt = stmt;
 	wrapper->stmt_location = context->pstmt->stmt_location;
 	wrapper->stmt_len = context->pstmt->stmt_len;
+	wrapper->cached_plan_type = PLAN_CACHE_NONE;
 
 	ProcessUtility(wrapper,
 				   context->queryString,

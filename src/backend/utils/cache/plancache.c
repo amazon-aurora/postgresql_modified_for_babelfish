@@ -1299,6 +1299,7 @@ GetCachedPlan(CachedPlanSource *plansource, ParamListInfo boundParams,
 	CachedPlan *plan = NULL;
 	List	   *qlist;
 	bool		customplan;
+	ListCell   *lc;
 
 	/* Assert caller is doing things in a sane order */
 	Assert(plansource->magic == CACHEDPLANSOURCE_MAGIC);
@@ -1399,6 +1400,13 @@ GetCachedPlan(CachedPlanSource *plansource, ParamListInfo boundParams,
 	{
 		MemoryContextSetParent(plan->context, CacheMemoryContext);
 		plan->is_saved = true;
+	}
+
+	foreach(lc, plan->stmt_list)
+	{
+		PlannedStmt *pstmt = (PlannedStmt *) lfirst(lc);
+
+		pstmt->cached_plan_type = customplan ? PLAN_CACHE_CUSTOM : PLAN_CACHE_GENERIC;
 	}
 
 	return plan;
