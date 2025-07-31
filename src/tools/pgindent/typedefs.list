@@ -391,7 +391,6 @@ CachedFunctionHashEntry
 CachedFunctionHashKey
 CachedPlan
 CachedPlanSource
-CachedPlanType
 CallContext
 CallStmt
 CancelRequestPacket
@@ -2277,6 +2276,7 @@ PlanInvalItem
 PlanRowMark
 PlanState
 PlannedStmt
+PlannedStmtOrigin
 PlannerGlobal
 PlannerInfo
 PlannerParamItem
