@@ -183,7 +183,7 @@ CreateConstraintEntry(const char *constraintName,
 	for (i = 0; i < Natts_pg_constraint; i++)
 	{
 		nulls[i] = false;
-		values[i] = (Datum) NULL;
+		values[i] = (Datum) 0;
 	}
 
 	if (UseTempOidBufferForOid(relId) && isTempNamespace(constraintNamespace))
