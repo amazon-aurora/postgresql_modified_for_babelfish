@@ -945,11 +945,11 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 												 make_pathkeys_for_sortclauses(root, groupList, tlist),
 												 -1.0);
 
-			path = (Path *) create_upper_unique_path(root,
-													 result_rel,
-													 path,
-													 list_length(path->pathkeys),
-													 dNumGroups);
+			path = (Path *) create_unique_path(root,
+											   result_rel,
+											   path,
+											   list_length(path->pathkeys),
+											   dNumGroups);
 
 			add_path(result_rel, path);
 
@@ -962,11 +962,11 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 												 make_pathkeys_for_sortclauses(root, groupList, tlist),
 												 -1.0);
 
-				path = (Path *) create_upper_unique_path(root,
-														 result_rel,
-														 path,
-														 list_length(path->pathkeys),
-														 dNumGroups);
+				path = (Path *) create_unique_path(root,
+												   result_rel,
+												   path,
+												   list_length(path->pathkeys),
+												   dNumGroups);
 				add_path(result_rel, path);
 			}
 		}
@@ -986,11 +986,11 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 													 NULL);
 
 			/* and make the MergeAppend unique */
-			path = (Path *) create_upper_unique_path(root,
-													 result_rel,
-													 path,
-													 list_length(tlist),
-													 dNumGroups);
+			path = (Path *) create_unique_path(root,
+											   result_rel,
+											   path,
+											   list_length(tlist),
+											   dNumGroups);
 
 			add_path(result_rel, path);
 		}
