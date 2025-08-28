@@ -104,7 +104,7 @@ extern bool get_collation_isdeterministic(Oid colloid);
 extern char *get_constraint_name(Oid conoid);
 extern Oid	get_constraint_index(Oid conoid);
 extern char get_constraint_type(Oid conoid);
-
+extern char *get_database_name(Oid dbid);
 extern char *get_language_name(Oid langoid, bool missing_ok);
 extern bool is_pltsql_language_oid(Oid langoid);
 extern Oid	get_opclass_family(Oid opclass);
