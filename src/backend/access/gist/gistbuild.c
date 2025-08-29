@@ -970,7 +970,7 @@ gistProcessItup(GISTBuildState *buildstate, IndexTuple itup,
 		buffer = ReadBuffer(indexrel, blkno);
 		LockBuffer(buffer, GIST_EXCLUSIVE);
 
-		page = (Page) BufferGetPage(buffer);
+		page = BufferGetPage(buffer);
 		childoffnum = gistchoose(indexrel, page, itup, giststate);
 		iid = PageGetItemId(page, childoffnum);
 		idxtuple = (IndexTuple) PageGetItem(page, iid);
@@ -1449,7 +1449,7 @@ gistGetMaxLevel(Relation index)
 		 * pro forma.
 		 */
 		LockBuffer(buffer, GIST_SHARE);
-		page = (Page) BufferGetPage(buffer);
+		page = BufferGetPage(buffer);
 
 		if (GistPageIsLeaf(page))
 		{

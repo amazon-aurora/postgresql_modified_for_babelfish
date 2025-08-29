@@ -1955,7 +1955,7 @@ seq_redo(XLogReaderState *record)
 		elog(PANIC, "seq_redo: unknown op code %u", info);
 
 	buffer = XLogInitBufferForRedo(record, 0);
-	page = (Page) BufferGetPage(buffer);
+	page = BufferGetPage(buffer);
 
 	/*
 	 * We always reinit the page.  However, since this WAL record type is also
