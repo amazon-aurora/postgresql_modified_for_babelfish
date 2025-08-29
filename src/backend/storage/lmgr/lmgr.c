@@ -56,7 +56,7 @@ typedef struct XactLockTableWaitInfo
 {
 	XLTW_Oper	oper;
 	Relation	rel;
-	ItemPointer ctid;
+	const ItemPointerData *ctid;
 } XactLockTableWaitInfo;
 
 static void XactLockTableWaitErrorCb(void *arg);
@@ -568,7 +568,7 @@ UnlockPage(Relation relation, BlockNumber blkno, LOCKMODE lockmode)
  * tuple.  See heap_lock_tuple before using this!
  */
 void
-LockTuple(Relation relation, ItemPointer tid, LOCKMODE lockmode)
+LockTuple(Relation relation, const ItemPointerData *tid, LOCKMODE lockmode)
 {
 	LOCKTAG		tag;
 
@@ -588,7 +588,7 @@ LockTuple(Relation relation, ItemPointer tid, LOCKMODE lockmode)
  * Returns true iff the lock was acquired.
  */
 bool
-ConditionalLockTuple(Relation relation, ItemPointer tid, LOCKMODE lockmode,
+ConditionalLockTuple(Relation relation, const ItemPointerData *tid, LOCKMODE lockmode,
 					 bool logLockFailure)
 {
 	LOCKTAG		tag;
@@ -607,7 +607,7 @@ ConditionalLockTuple(Relation relation, ItemPointer tid, LOCKMODE lockmode,
  *		UnlockTuple
  */
 void
-UnlockTuple(Relation relation, ItemPointer tid, LOCKMODE lockmode)
+UnlockTuple(Relation relation, const ItemPointerData *tid, LOCKMODE lockmode)
 {
 	LOCKTAG		tag;
 
@@ -669,7 +669,7 @@ XactLockTableDelete(TransactionId xid)
  * and if so wait for its parent.
  */
 void
-XactLockTableWait(TransactionId xid, Relation rel, ItemPointer ctid,
+XactLockTableWait(TransactionId xid, Relation rel, const ItemPointerData *ctid,
 				  XLTW_Oper oper)
 {
 	LOCKTAG		tag;
