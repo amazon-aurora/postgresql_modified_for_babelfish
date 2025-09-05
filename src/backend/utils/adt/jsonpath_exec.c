@@ -253,7 +253,8 @@ typedef JsonPathBool (*JsonPathPredicateCallback) (JsonPathItem *jsp,
 												   JsonbValue *larg,
 												   JsonbValue *rarg,
 												   void *param);
-typedef Numeric (*BinaryArithmFunc) (Numeric num1, Numeric num2, bool *error);
+typedef Numeric (*BinaryArithmFunc) (Numeric num1, Numeric num2,
+									 Node *escontext);
 
 static JsonPathExecResult executeJsonPath(JsonPath *path, void *vars,
 										  JsonPathGetVarCallback getVar,
@@ -1033,23 +1034,23 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 
 		case jpiAdd:
 			return executeBinaryArithmExpr(cxt, jsp, jb,
-										   numeric_add_opt_error, found);
+										   numeric_add_safe, found);
 
 		case jpiSub:
 			return executeBinaryArithmExpr(cxt, jsp, jb,
-										   numeric_sub_opt_error, found);
+										   numeric_sub_safe, found);
 
 		case jpiMul:
 			return executeBinaryArithmExpr(cxt, jsp, jb,
-										   numeric_mul_opt_error, found);
+										   numeric_mul_safe, found);
 
 		case jpiDiv:
 			return executeBinaryArithmExpr(cxt, jsp, jb,
-										   numeric_div_opt_error, found);
+										   numeric_div_safe, found);
 
 		case jpiMod:
 			return executeBinaryArithmExpr(cxt, jsp, jb,
-										   numeric_mod_opt_error, found);
+										   numeric_mod_safe, found);
 
 		case jpiPlus:
 			return executeUnaryArithmExpr(cxt, jsp, jb, NULL, found);
@@ -1519,11 +1520,12 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 
 				if (jb->type == jbvNumeric)
 				{
-					bool		have_error;
+					ErrorSaveContext escontext = {T_ErrorSaveContext};
 					int64		val;
 
-					val = numeric_int8_opt_error(jb->val.numeric, &have_error);
-					if (have_error)
+					val = numeric_int8_safe(jb->val.numeric,
+											(Node *) &escontext);
+					if (escontext.error_occurred)
 						RETURN_ERROR(ereport(ERROR,
 											 (errcode(ERRCODE_NON_NUMERIC_SQL_JSON_ITEM),
 											  errmsg("argument \"%s\" of jsonpath item method .%s() is invalid for type %s",
@@ -1716,7 +1718,6 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 					Datum		dtypmod;
 					int32		precision;
 					int32		scale = 0;
-					bool		have_error;
 					bool		noerr;
 					ArrayType  *arrtypmod;
 					Datum		datums[2];
@@ -1728,9 +1729,9 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 					if (elem.type != jpiNumeric)
 						elog(ERROR, "invalid jsonpath item type for .decimal() precision");
 
-					precision = numeric_int4_opt_error(jspGetNumeric(&elem),
-													   &have_error);
-					if (have_error)
+					precision = numeric_int4_safe(jspGetNumeric(&elem),
+												  (Node *) &escontext);
+					if (escontext.error_occurred)
 						RETURN_ERROR(ereport(ERROR,
 											 (errcode(ERRCODE_NON_NUMERIC_SQL_JSON_ITEM),
 											  errmsg("precision of jsonpath item method .%s() is out of range for type integer",
@@ -1742,9 +1743,9 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 						if (elem.type != jpiNumeric)
 							elog(ERROR, "invalid jsonpath item type for .decimal() scale");
 
-						scale = numeric_int4_opt_error(jspGetNumeric(&elem),
-													   &have_error);
-						if (have_error)
+						scale = numeric_int4_safe(jspGetNumeric(&elem),
+												  (Node *) &escontext);
+						if (escontext.error_occurred)
 							RETURN_ERROR(ereport(ERROR,
 												 (errcode(ERRCODE_NON_NUMERIC_SQL_JSON_ITEM),
 												  errmsg("scale of jsonpath item method .%s() is out of range for type integer",
@@ -1800,11 +1801,12 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 
 				if (jb->type == jbvNumeric)
 				{
-					bool		have_error;
 					int32		val;
+					ErrorSaveContext escontext = {T_ErrorSaveContext};
 
-					val = numeric_int4_opt_error(jb->val.numeric, &have_error);
-					if (have_error)
+					val = numeric_int4_safe(jb->val.numeric,
+											(Node *) &escontext);
+					if (escontext.error_occurred)
 						RETURN_ERROR(ereport(ERROR,
 											 (errcode(ERRCODE_NON_NUMERIC_SQL_JSON_ITEM),
 											  errmsg("argument \"%s\" of jsonpath item method .%s() is invalid for type %s",
@@ -2399,11 +2401,11 @@ executeBinaryArithmExpr(JsonPathExecContext *cxt, JsonPathItem *jsp,
 	}
 	else
 	{
-		bool		error = false;
+		ErrorSaveContext escontext = {T_ErrorSaveContext};
 
-		res = func(lval->val.numeric, rval->val.numeric, &error);
+		res = func(lval->val.numeric, rval->val.numeric, (Node *) &escontext);
 
-		if (error)
+		if (escontext.error_occurred)
 			return jperError;
 	}
 
@@ -2683,7 +2685,7 @@ executeDateTimeMethod(JsonPathExecContext *cxt, JsonPathItem *jsp,
 		if (jsp->type != jpiDatetime && jsp->type != jpiDate &&
 			jsp->content.arg)
 		{
-			bool		have_error;
+			ErrorSaveContext escontext = {T_ErrorSaveContext};
 
 			jspGetArg(jsp, &elem);
 
@@ -2691,9 +2693,9 @@ executeDateTimeMethod(JsonPathExecContext *cxt, JsonPathItem *jsp,
 				elog(ERROR, "invalid jsonpath item type for %s argument",
 					 jspOperationName(jsp->type));
 
-			time_precision = numeric_int4_opt_error(jspGetNumeric(&elem),
-													&have_error);
-			if (have_error)
+			time_precision = numeric_int4_safe(jspGetNumeric(&elem),
+											   (Node *) &escontext);
+			if (escontext.error_occurred)
 				RETURN_ERROR(ereport(ERROR,
 									 (errcode(ERRCODE_INVALID_ARGUMENT_FOR_SQL_JSON_DATETIME_FUNCTION),
 									  errmsg("time precision of jsonpath item method .%s() is out of range for type integer",
@@ -3712,7 +3714,7 @@ getArrayIndex(JsonPathExecContext *cxt, JsonPathItem *jsp, JsonbValue *jb,
 	JsonValueList found = {0};
 	JsonPathExecResult res = executeItem(cxt, jsp, jb, &found);
 	Datum		numeric_index;
-	bool		have_error = false;
+	ErrorSaveContext escontext = {T_ErrorSaveContext};
 
 	if (jperIsError(res))
 		return res;
@@ -3727,10 +3729,10 @@ getArrayIndex(JsonPathExecContext *cxt, JsonPathItem *jsp, JsonbValue *jb,
 										NumericGetDatum(jbv->val.numeric),
 										Int32GetDatum(0));
 
-	*index = numeric_int4_opt_error(DatumGetNumeric(numeric_index),
-									&have_error);
+	*index = numeric_int4_safe(DatumGetNumeric(numeric_index),
+							   (Node *) &escontext);
 
-	if (have_error)
+	if (escontext.error_occurred)
 		RETURN_ERROR(ereport(ERROR,
 							 (errcode(ERRCODE_INVALID_SQL_JSON_SUBSCRIPT),
 							  errmsg("jsonpath array subscript is out of integer range"))));
