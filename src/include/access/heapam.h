@@ -296,12 +296,6 @@ typedef HTSV_Result (*table_variable_satisfies_vacuum_horizon_hook_type) (
 	HeapTuple htup, Buffer buffer, TransactionId *dead_after);
 extern PGDLLEXPORT table_variable_satisfies_vacuum_horizon_hook_type table_variable_satisfies_vacuum_horizon_hook;
 
-/*
- * HeapScanIsValid
- *		True iff the heap scan is valid.
- */
-#define HeapScanIsValid(scan) PointerIsValid(scan)
-
 extern TableScanDesc heap_beginscan(Relation relation, Snapshot snapshot,
 									int nkeys, ScanKey key,
 									ParallelTableScanDesc parallel_scan,
