@@ -2605,6 +2605,7 @@ RtlNtStatusToDosError_t
 RuleInfo
 RuleLock
 RuleStmt
+RunMode
 RunningTransactions
 RunningTransactionsData
 SASLStatus
