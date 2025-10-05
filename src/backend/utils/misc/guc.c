@@ -34,7 +34,7 @@
 #include "catalog/objectaccess.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_parameter_acl.h"
-#include "commands/typecmds.h"
+#include "catalog/pg_type.h"
 #include "guc_internal.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"

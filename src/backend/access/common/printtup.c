@@ -24,6 +24,7 @@
 #include "utils/lsyscache.h"
 #include "utils/memdebug.h"
 #include "utils/memutils.h"
+#include "varatt.h"
 
 
 static void printtup_startup(DestReceiver *self, int operation,
