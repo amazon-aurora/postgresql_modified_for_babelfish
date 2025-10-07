@@ -99,8 +99,6 @@ char	   *localized_full_days[7 + 1];
 char	   *localized_abbrev_months[12 + 1];
 char	   *localized_full_months[12 + 1];
 
-PGDLLIMPORT collation_cache_entry_hook_type collation_cache_entry_hook = NULL;
-
 /* is the databases's LC_CTYPE the C locale? */
 bool		database_ctype_is_c = false;
 
@@ -1168,7 +1166,6 @@ pg_locale_t
 pg_newlocale_from_collation(Oid collid)
 {
 	collation_cache_entry *cache_entry;
-	pg_locale_t 		prev_local = NULL;
 	bool		found;
 
 	if (collid == DEFAULT_COLLATION_OID)
@@ -1182,16 +1179,6 @@ pg_newlocale_from_collation(Oid collid)
 	if (last_collation_cache_oid == collid)
 		return last_collation_cache_locale;
     
-	/* Call hook to get pervious cached value and return if not null*/
-	if(collation_cache_entry_hook)
-	{
-		prev_local =  (pg_locale_t)(*collation_cache_entry_hook)(collid,NULL);
-		if (prev_local)
-		{
-			return prev_local;
-		}
-	}
-
 	if (CollationCache == NULL)
 	{
 		CollationCacheContext = AllocSetContextCreate(TopMemoryContext,
@@ -1216,11 +1203,6 @@ pg_newlocale_from_collation(Oid collid)
 		cache_entry->locale = create_pg_locale(collid, CollationCacheContext);
 	}
 
-	/* Call hook to save the cached value */
-	if(collation_cache_entry_hook)
-	{
-		(*collation_cache_entry_hook)(cache_entry->collid, &cache_entry->locale);
-	}
 	last_collation_cache_oid = collid;
 	last_collation_cache_locale = cache_entry->locale;
 
