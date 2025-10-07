@@ -169,7 +169,6 @@ struct pg_locale_struct
 	}			info;
 };
 
-extern pg_locale_t *collation_cache_entry_hook_function (Oid, pg_locale_t *);
 
 extern void init_database_collation(void);
 extern pg_locale_t pg_newlocale_from_collation(Oid collid);
@@ -225,8 +224,5 @@ extern size_t wchar2char(char *to, const wchar_t *from, size_t tolen,
 						 pg_locale_t locale);
 extern size_t char2wchar(wchar_t *to, size_t tolen,
 						 const char *from, size_t fromlen, pg_locale_t locale);
-
-typedef pg_locale_t* (*collation_cache_entry_hook_type)(Oid, pg_locale_t *);
-extern  PGDLLEXPORT collation_cache_entry_hook_type collation_cache_entry_hook;
 
 #endif							/* _PG_LOCALE_ */

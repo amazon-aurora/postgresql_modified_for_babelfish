@@ -699,7 +699,6 @@ fmgr_security_definer(PG_FUNCTION_ARGS)
 	int			sys_func_count = 0;
 	int			non_tsql_proc_count = 0;
 	void	   *newextra = NULL;
-	char 	   *cacheTupleProcname = NULL;
 
 	if (get_func_language_oids_hook)
 		get_func_language_oids_hook(&pltsql_lang_oid, &pltsql_validator_oid);
@@ -732,8 +731,6 @@ fmgr_security_definer(PG_FUNCTION_ARGS)
 			elog(ERROR, "cache lookup failed for function %u",
 				 fcinfo->flinfo->fn_oid);
 		procedureStruct = (Form_pg_proc) GETSTRUCT(tuple);
-
-		cacheTupleProcname = pstrdup(procedureStruct->proname.data);
 
 		if (procedureStruct->prosecdef)
 			fcache->userid = procedureStruct->proowner;
@@ -851,24 +848,7 @@ fmgr_security_definer(PG_FUNCTION_ARGS)
 		fcinfo->flinfo = &fcache->flinfo;
 
 		/* See notes in fmgr_info_cxt_security */
-
-		/* 
-		 * The wrapper function hook is called if hook is not null 
-		 * and the dialect is TSQL then we call this func using hook 
-		 * otherwise we will fall back to pgstat_init_function_usage
-		*/
-
-		if(pgstat_function_wrapper_hook && sql_dialect == SQL_DIALECT_TSQL)
-		{
-			(*pgstat_function_wrapper_hook)(fcinfo, &fcusage, cacheTupleProcname);
-		}
-		
 		pgstat_init_function_usage(fcinfo, &fcusage);
-
-		if(cacheTupleProcname)
-		{
-			pfree(cacheTupleProcname);
-		}
 
 		result = FunctionCallInvoke(fcinfo);
 
