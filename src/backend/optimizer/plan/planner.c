@@ -75,6 +75,13 @@ bool		enable_distinct_reordering = true;
 planner_hook_type planner_hook = NULL;
 /* Hook for plugins to transform qual nodes in planner */
 planner_node_transformer_hook_type planner_node_transformer_hook = NULL;
+
+/* Hook for plugins to get control after PlannerGlobal is initialized */
+planner_setup_hook_type planner_setup_hook = NULL;
+
+/* Hook for plugins to get control before PlannerGlobal is discarded */
+planner_shutdown_hook_type planner_shutdown_hook = NULL;
+
 /* Hook for plugins to get control when grouping_planner() plans upper rels */
 create_upper_paths_hook_type create_upper_paths_hook = NULL;
 /* Hook for plugins to flag whether parameters are dynamic */
@@ -460,6 +467,10 @@ standard_planner(Query *parse, const char *query_string, int cursorOptions,
 		tuple_fraction = 0.0;
 	}
 
+	/* Allow plugins to take control after we've initialized "glob" */
+	if (planner_setup_hook)
+		(*planner_setup_hook) (glob, parse, query_string, &tuple_fraction, es);
+
 	/* primary planning entry point (may recurse for subqueries) */
 	root = subquery_planner(glob, parse, NULL, NULL, false, tuple_fraction,
 							NULL);
@@ -638,6 +649,10 @@ standard_planner(Query *parse, const char *query_string, int cursorOptions,
 		if (jit_tuple_deforming)
 			result->jitFlags |= PGJIT_DEFORM;
 	}
+
+	/* Allow plugins to take control before we discard "glob" */
+	if (planner_shutdown_hook)
+		(*planner_shutdown_hook) (glob, parse, query_string, result);
 
 	if (glob->partition_directory != NULL)
 		DestroyPartitionDirectory(glob->partition_directory);
