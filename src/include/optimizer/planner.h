@@ -22,11 +22,14 @@
 #include "nodes/plannodes.h"
 
 
+typedef struct ExplainState ExplainState;	/* defined in explain_state.h */
+
 /* Hook for plugins to get control in planner() */
 typedef PlannedStmt *(*planner_hook_type) (Query *parse,
 										   const char *query_string,
 										   int cursorOptions,
-										   ParamListInfo boundParams);
+										   ParamListInfo boundParams,
+										   ExplainState *es);
 extern PGDLLEXPORT planner_hook_type planner_hook;
 
 /* Hook for plugins to transform qual nodes in planner */
@@ -52,7 +55,8 @@ extern PGDLLIMPORT create_upper_paths_hook_type create_upper_paths_hook;
 
 extern PlannedStmt *standard_planner(Query *parse, const char *query_string,
 									 int cursorOptions,
-									 ParamListInfo boundParams);
+									 ParamListInfo boundParams,
+									 ExplainState *es);
 
 extern PlannerInfo *subquery_planner(PlannerGlobal *glob, Query *parse,
 									 char *plan_name,
