@@ -6083,7 +6083,7 @@ Datum
 bigint_poly_aggr_final(FunctionCallInfo fcinfo, tsqlAggType aggType)
 {
 
-	PolyNumAggState		*state;
+	Int128AggState		*state;
 	#ifdef HAVE_INT128
 		int128		result;
 	#else
@@ -6093,7 +6093,7 @@ bigint_poly_aggr_final(FunctionCallInfo fcinfo, tsqlAggType aggType)
 		NumericVar nvar;
 	#endif
 
-	state = PG_ARGISNULL(0) ? NULL : (PolyNumAggState *) PG_GETARG_POINTER(0);
+	state = PG_ARGISNULL(0) ? NULL : (Int128AggState *) PG_GETARG_POINTER(0);
 	/* If there were no non-null inputs, return NULL */
 	if (state == NULL || state->N == 0)
 		PG_RETURN_NULL();
