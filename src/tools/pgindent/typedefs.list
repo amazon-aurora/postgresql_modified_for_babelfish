@@ -2364,6 +2364,7 @@ PublicationObjSpec
 PublicationObjSpecType
 PublicationPartOpt
 PublicationRelInfo
+PublicationRelKind
 PublicationSchemaInfo
 PublicationTable
 PublishGencolsType
