@@ -234,7 +234,7 @@ extern size_t icu_from_uchar(char *dest, size_t destsize,
 							 const UChar *buff_uchar, int32_t len_uchar);
 #endif
 
-/* This function converts from libc's wchar_t, *not* pg_wchar_t */
+/* This function converts from libc's wchar_t, *not* pg_wchar */
 extern size_t wchar2char(char *to, const wchar_t *from, size_t tolen,
 						 locale_t loc);
 
