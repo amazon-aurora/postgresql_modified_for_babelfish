@@ -48,7 +48,7 @@ fillFakeState(SpGistState *state, spgxlogState stateSrc)
  * existing tuple, it had better be a placeholder tuple.
  */
 static void
-addOrReplaceTuple(Page page, Item tuple, int size, OffsetNumber offset)
+addOrReplaceTuple(Page page, const void *tuple, int size, OffsetNumber offset)
 {
 	if (offset <= PageGetMaxOffsetNumber(page))
 	{
@@ -111,8 +111,7 @@ spgRedoAddLeaf(XLogReaderState *record)
 		if (xldata->offnumLeaf != xldata->offnumHeadLeaf)
 		{
 			/* normal cases, tuple was added by SpGistPageAddNewItem */
-			addOrReplaceTuple(page, (Item) leafTuple, leafTupleHdr.size,
-							  xldata->offnumLeaf);
+			addOrReplaceTuple(page, leafTuple, leafTupleHdr.size, xldata->offnumLeaf);
 
 			/* update head tuple's chain link if needed */
 			if (xldata->offnumHeadLeaf != InvalidOffsetNumber)
@@ -130,7 +129,7 @@ spgRedoAddLeaf(XLogReaderState *record)
 			/* replacing a DEAD tuple */
 			PageIndexTupleDelete(page, xldata->offnumLeaf);
 			if (PageAddItem(page,
-							(Item) leafTuple, leafTupleHdr.size,
+							leafTuple, leafTupleHdr.size,
 							xldata->offnumLeaf, false, false) != xldata->offnumLeaf)
 				elog(ERROR, "failed to add item of size %u to SPGiST index page",
 					 leafTupleHdr.size);
@@ -233,8 +232,7 @@ spgRedoMoveLeafs(XLogReaderState *record)
 			memcpy(&leafTupleHdr, leafTuple,
 				   sizeof(SpGistLeafTupleData));
 
-			addOrReplaceTuple(page, (Item) leafTuple,
-							  leafTupleHdr.size, toInsert[i]);
+			addOrReplaceTuple(page, leafTuple, leafTupleHdr.size, toInsert[i]);
 			ptr += leafTupleHdr.size;
 		}
 
@@ -310,7 +308,7 @@ spgRedoAddNode(XLogReaderState *record)
 			page = BufferGetPage(buffer);
 
 			PageIndexTupleDelete(page, xldata->offnum);
-			if (PageAddItem(page, (Item) innerTuple, innerTupleHdr.size,
+			if (PageAddItem(page, innerTuple, innerTupleHdr.size,
 							xldata->offnum,
 							false, false) != xldata->offnum)
 				elog(ERROR, "failed to add item of size %u to SPGiST index page",
@@ -352,8 +350,7 @@ spgRedoAddNode(XLogReaderState *record)
 		{
 			page = BufferGetPage(buffer);
 
-			addOrReplaceTuple(page, (Item) innerTuple,
-							  innerTupleHdr.size, xldata->offnumNew);
+			addOrReplaceTuple(page, innerTuple, innerTupleHdr.size, xldata->offnumNew);
 
 			/*
 			 * If parent is in this same page, update it now.
@@ -391,7 +388,7 @@ spgRedoAddNode(XLogReaderState *record)
 									  xldata->offnumNew);
 
 			PageIndexTupleDelete(page, xldata->offnum);
-			if (PageAddItem(page, (Item) dt, dt->size,
+			if (PageAddItem(page, dt, dt->size,
 							xldata->offnum,
 							false, false) != xldata->offnum)
 				elog(ERROR, "failed to add item of size %u to SPGiST index page",
@@ -493,8 +490,7 @@ spgRedoSplitTuple(XLogReaderState *record)
 		{
 			page = BufferGetPage(buffer);
 
-			addOrReplaceTuple(page, (Item) postfixTuple,
-							  postfixTupleHdr.size, xldata->offnumPostfix);
+			addOrReplaceTuple(page, postfixTuple, postfixTupleHdr.size, xldata->offnumPostfix);
 
 			PageSetLSN(page, lsn);
 			MarkBufferDirty(buffer);
@@ -509,15 +505,13 @@ spgRedoSplitTuple(XLogReaderState *record)
 		page = BufferGetPage(buffer);
 
 		PageIndexTupleDelete(page, xldata->offnumPrefix);
-		if (PageAddItem(page, (Item) prefixTuple, prefixTupleHdr.size,
+		if (PageAddItem(page, prefixTuple, prefixTupleHdr.size,
 						xldata->offnumPrefix, false, false) != xldata->offnumPrefix)
 			elog(ERROR, "failed to add item of size %u to SPGiST index page",
 				 prefixTupleHdr.size);
 
 		if (xldata->postfixBlkSame)
-			addOrReplaceTuple(page, (Item) postfixTuple,
-							  postfixTupleHdr.size,
-							  xldata->offnumPostfix);
+			addOrReplaceTuple(page, postfixTuple, postfixTupleHdr.size, xldata->offnumPostfix);
 
 		PageSetLSN(page, lsn);
 		MarkBufferDirty(buffer);
@@ -663,8 +657,7 @@ spgRedoPickSplit(XLogReaderState *record)
 		if (page == NULL)
 			continue;			/* no need to touch this page */
 
-		addOrReplaceTuple(page, (Item) leafTuple, leafTupleHdr.size,
-						  toInsert[i]);
+		addOrReplaceTuple(page, leafTuple, leafTupleHdr.size, toInsert[i]);
 	}
 
 	/* Now update src and dest page LSNs if needed */
@@ -693,8 +686,7 @@ spgRedoPickSplit(XLogReaderState *record)
 	{
 		page = BufferGetPage(innerBuffer);
 
-		addOrReplaceTuple(page, (Item) innerTuple, innerTupleHdr.size,
-						  xldata->offnumInner);
+		addOrReplaceTuple(page, innerTuple, innerTupleHdr.size, xldata->offnumInner);
 
 		/* if inner is also parent, update link while we're here */
 		if (xldata->innerIsParent)
