@@ -4669,12 +4669,6 @@ CheckNNConstraintFetch(Relation relation)
 			break;
 		}
 
-		check[found].ccenforced = conform->conenforced;
-		check[found].ccvalid = conform->convalidated;
-		check[found].ccnoinherit = conform->connoinherit;
-		check[found].ccname = MemoryContextStrdup(CacheMemoryContext,
-												  NameStr(conform->conname));
-
 		/* Grab and test conbin is actually set */
 		val = fastgetattr(htup,
 						  Anum_pg_constraint_conbin,
@@ -4687,7 +4681,13 @@ CheckNNConstraintFetch(Relation relation)
 			/* detoast and convert to cstring in caller's context */
 			char	   *s = TextDatumGetCString(val);
 
+			check[found].ccenforced = conform->conenforced;
+			check[found].ccvalid = conform->convalidated;
+			check[found].ccnoinherit = conform->connoinherit;
+			check[found].ccname = MemoryContextStrdup(CacheMemoryContext,
+													  NameStr(conform->conname));
 			check[found].ccbin = MemoryContextStrdup(CacheMemoryContext, s);
+
 			pfree(s);
 			found++;
 		}
