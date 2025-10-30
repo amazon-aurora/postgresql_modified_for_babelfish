@@ -1077,6 +1077,7 @@ GinQualCounts
 GinScanEntry
 GinScanItem
 GinScanKey
+GinScanKeyData
 GinScanOpaque
 GinScanOpaqueData
 GinSegmentInfo
