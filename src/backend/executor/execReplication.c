@@ -475,7 +475,8 @@ BuildConflictIndexInfo(ResultRelInfo *resultRelInfo, Oid conflictindex)
  * the most recent and relevant deletion metadata.
  */
 static void
-update_most_recent_deletion_info(TupleTableSlot *scanslot,
+update_most_recent_deletion_info(Relation rel,
+								 TupleTableSlot *scanslot,
 								 TransactionId oldestxmin,
 								 TransactionId *delete_xid,
 								 TimestampTz *delete_time,
@@ -503,7 +504,7 @@ update_most_recent_deletion_info(TupleTableSlot *scanslot,
 	 * than oldestxmin, making it safe to ignore them during conflict
 	 * detection (See comments atop worker.c for details).
 	 */
-	if (HeapTupleSatisfiesVacuum(tuple, oldestxmin, buf) == HEAPTUPLE_RECENTLY_DEAD)
+	if (HeapTupleSatisfiesVacuum(rel, tuple, oldestxmin, buf) == HEAPTUPLE_RECENTLY_DEAD)
 		recently_dead = true;
 
 	LockBuffer(buf, BUFFER_LOCK_UNLOCK);
@@ -612,7 +613,7 @@ RelationFindDeletedTupleInfoSeq(Relation rel, TupleTableSlot *searchslot,
 		if (!tuples_equal(scanslot, searchslot, eq, indexbitmap))
 			continue;
 
-		update_most_recent_deletion_info(scanslot, oldestxmin, delete_xid,
+		update_most_recent_deletion_info(rel, scanslot, oldestxmin, delete_xid,
 										 delete_time, delete_origin);
 	}
 
@@ -685,7 +686,7 @@ RelationFindDeletedTupleInfoByIndex(Relation rel, Oid idxoid,
 				continue;
 		}
 
-		update_most_recent_deletion_info(scanslot, oldestxmin, delete_xid,
+		update_most_recent_deletion_info(rel, scanslot, oldestxmin, delete_xid,
 										 delete_time, delete_origin);
 	}
 
