@@ -174,6 +174,9 @@ extern TupleHashEntry FindTupleHashEntry(TupleHashTable hashtable,
 										 ExprState *eqcomp,
 										 ExprState *hashexpr);
 extern void ResetTupleHashTable(TupleHashTable hashtable);
+extern Size EstimateTupleHashTableSpace(double nentries,
+										Size tupleWidth,
+										Size additionalsize);
 
 #ifndef FRONTEND
 /*
