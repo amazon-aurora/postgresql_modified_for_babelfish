@@ -3268,6 +3268,10 @@ WaitEventIO
 WaitEventIPC
 WaitEventSet
 WaitEventTimeout
+WaitLSNType
+WaitLSNState
+WaitLSNProcInfo
+WaitLSNResult
 WaitPMResult
 WalCloseMethod
 WalCompression
