@@ -56,6 +56,7 @@
 #include "commands/user.h"
 #include "commands/vacuum.h"
 #include "commands/view.h"
+#include "commands/wait.h"
 #include "miscadmin.h"
 #include "parser/parser.h"
 #include "parser/parse_utilcmd.h"
@@ -269,6 +270,7 @@ ClassifyUtilityCommandAsReadOnly(Node *parsetree)
 		case T_PrepareStmt:
 		case T_UnlistenStmt:
 		case T_VariableSetStmt:
+		case T_WaitStmt:
 			{
 				/*
 				 * These modify only backend-local state, so they're OK to run
@@ -1071,6 +1073,12 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 					ExecSecLabelStmt(stmt);
 				break;
 			}
+
+		case T_WaitStmt:
+			{
+				ExecWaitStmt(pstate, (WaitStmt *) parsetree, dest);
+			}
+			break;
 
 		default:
 			/* All other statement types have event trigger support */
@@ -2082,6 +2090,9 @@ UtilityReturnsTuples(Node *parsetree)
 		case T_VariableShowStmt:
 			return true;
 
+		case T_WaitStmt:
+			return true;
+
 		default:
 			return false;
 	}
@@ -2136,6 +2147,9 @@ UtilityTupleDescriptor(Node *parsetree)
 
 				return GetPGVariableResultDesc(n->name);
 			}
+
+		case T_WaitStmt:
+			return WaitStmtResultDesc((WaitStmt *) parsetree);
 
 		default:
 			return NULL;
@@ -3114,6 +3128,10 @@ CreateCommandTag(Node *parsetree)
 			}
 			break;
 
+		case T_WaitStmt:
+			tag = CMDTAG_WAIT;
+			break;
+
 			/* already-planned queries */
 		case T_PlannedStmt:
 			{
@@ -3710,6 +3728,10 @@ GetCommandLogLevel(Node *parsetree)
 
 		case T_AlterCollationStmt:
 			lev = LOGSTMT_DDL;
+			break;
+
+		case T_WaitStmt:
+			lev = LOGSTMT_ALL;
 			break;
 
 			/* already-planned queries */

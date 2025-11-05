@@ -3273,6 +3273,7 @@ WaitLSNState
 WaitLSNProcInfo
 WaitLSNResult
 WaitPMResult
+WaitStmt
 WalCloseMethod
 WalCompression
 WalInsertClass
