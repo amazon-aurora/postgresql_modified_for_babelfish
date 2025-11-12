@@ -468,7 +468,7 @@ fix_domain_typmods_hook_type fix_domain_typmods_hook = NULL;
 				transform_element_list transform_type_list
 				TriggerTransitions TriggerReferencing
 				vacuum_relation_list opt_vacuum_relation_list
-				drop_option_list pub_obj_list pub_obj_type_list
+				drop_option_list pub_obj_list pub_all_obj_type_list
 
 %type <retclause> returning_clause
 %type <node>	returning_option
@@ -10789,9 +10789,9 @@ AlterOwnerStmt: ALTER AGGREGATE aggregate_with_argtypes OWNER TO RoleSpec
  *
  * CREATE PUBLICATION name [WITH options]
  *
- * CREATE PUBLICATION FOR ALL pub_obj_type [, ...] [WITH options]
+ * CREATE PUBLICATION FOR ALL pub_all_obj_type [, ...] [WITH options]
  *
- * pub_obj_type is one of:
+ * pub_all_obj_type is one of:
  *
  *		TABLES
  *		SEQUENCES
@@ -10814,12 +10814,11 @@ CreatePublicationStmt:
 					n->options = $4;
 					$$ = (Node *) n;
 				}
-			| CREATE PUBLICATION name FOR pub_obj_type_list opt_definition
+			| CREATE PUBLICATION name FOR pub_all_obj_type_list opt_definition
 				{
 					CreatePublicationStmt *n = makeNode(CreatePublicationStmt);
 
 					n->pubname = $3;
-					n->pubobjects = (List *) $5;
 					preprocess_pub_all_objtype_list($5, &n->for_all_tables,
 													&n->for_all_sequences,
 													yyscanner);
@@ -10950,9 +10949,9 @@ PublicationAllObjSpec:
 					}
 					;
 
-pub_obj_type_list:	PublicationAllObjSpec
+pub_all_obj_type_list:	PublicationAllObjSpec
 					{ $$ = list_make1($1); }
-				| pub_obj_type_list ',' PublicationAllObjSpec
+				| pub_all_obj_type_list ',' PublicationAllObjSpec
 					{ $$ = lappend($1, $3); }
 	;
 
