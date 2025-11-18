@@ -110,8 +110,8 @@ typedef struct PgStat_FunctionCallUsage
 typedef struct PgStat_BackendSubEntry
 {
 	PgStat_Counter apply_error_count;
-	PgStat_Counter seq_sync_error_count;
-	PgStat_Counter sync_error_count;
+	PgStat_Counter sync_seq_error_count;
+	PgStat_Counter sync_table_error_count;
 	PgStat_Counter conflict_count[CONFLICT_NUM_TYPES];
 } PgStat_BackendSubEntry;
 
@@ -419,8 +419,8 @@ typedef struct PgStat_SLRUStats
 typedef struct PgStat_StatSubEntry
 {
 	PgStat_Counter apply_error_count;
-	PgStat_Counter seq_sync_error_count;
-	PgStat_Counter sync_error_count;
+	PgStat_Counter sync_seq_error_count;
+	PgStat_Counter sync_table_error_count;
 	PgStat_Counter conflict_count[CONFLICT_NUM_TYPES];
 	TimestampTz stat_reset_timestamp;
 } PgStat_StatSubEntry;
