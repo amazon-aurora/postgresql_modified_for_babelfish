@@ -71,6 +71,7 @@
 #include "storage/lmgr.h"
 #include "utils/builtins.h"
 #include "utils/datum.h"
+#include "utils/injection_point.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 
@@ -1200,6 +1201,7 @@ ExecInsert(ModifyTableContext *context,
 			 * if we're going to go ahead with the insertion, instead of
 			 * waiting for the whole transaction to complete.
 			 */
+			INJECTION_POINT("exec-insert-before-insert-speculative", NULL);
 			specToken = SpeculativeInsertionLockAcquire(GetCurrentTransactionId());
 
 			/* insert the tuple, with the speculative token */
