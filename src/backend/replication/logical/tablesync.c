@@ -1555,7 +1555,7 @@ start_table_sync(XLogRecPtr *origin_startpos, char **slotname)
  * and starts streaming to catchup with apply worker.
  */
 static void
-run_tablesync_worker()
+run_tablesync_worker(void)
 {
 	char		originname[NAMEDATALEN];
 	XLogRecPtr	origin_startpos = InvalidXLogRecPtr;
