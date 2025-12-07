@@ -3124,8 +3124,7 @@ executeKeyValueMethod(JsonPathExecContext *cxt, JsonPathItem *jsp,
 	{
 		JsonBaseObjectInfo baseObject;
 		JsonbValue	obj;
-		JsonbParseState *ps;
-		JsonbValue *keyval;
+		JsonbInState ps;
 		Jsonb	   *jsonb;
 
 		if (tok != WJB_KEY)
@@ -3139,7 +3138,8 @@ executeKeyValueMethod(JsonPathExecContext *cxt, JsonPathItem *jsp,
 		tok = JsonbIteratorNext(&it, &val, true);
 		Assert(tok == WJB_VALUE);
 
-		ps = NULL;
+		memset(&ps, 0, sizeof(ps));
+
 		pushJsonbValue(&ps, WJB_BEGIN_OBJECT, NULL);
 
 		pushJsonbValue(&ps, WJB_KEY, &keystr);
@@ -3151,9 +3151,9 @@ executeKeyValueMethod(JsonPathExecContext *cxt, JsonPathItem *jsp,
 		pushJsonbValue(&ps, WJB_KEY, &idstr);
 		pushJsonbValue(&ps, WJB_VALUE, &idval);
 
-		keyval = pushJsonbValue(&ps, WJB_END_OBJECT, NULL);
+		pushJsonbValue(&ps, WJB_END_OBJECT, NULL);
 
-		jsonb = JsonbValueToJsonb(keyval);
+		jsonb = JsonbValueToJsonb(ps.result);
 
 		JsonbInitBinary(&obj, jsonb);
 
@@ -3899,7 +3899,7 @@ getScalar(JsonbValue *scalar, enum jbvType type)
 static JsonbValue *
 wrapItemsInArray(const JsonValueList *items)
 {
-	JsonbParseState *ps = NULL;
+	JsonbInState ps = {0};
 	JsonValueListIterator it;
 	JsonbValue *jbv;
 
@@ -3909,7 +3909,9 @@ wrapItemsInArray(const JsonValueList *items)
 	while ((jbv = JsonValueListNext(items, &it)))
 		pushJsonbValue(&ps, WJB_ELEM, jbv);
 
-	return pushJsonbValue(&ps, WJB_END_ARRAY, NULL);
+	pushJsonbValue(&ps, WJB_END_ARRAY, NULL);
+
+	return ps.result;
 }
 
 /* Check if the timezone required for casting from type1 to type2 is used */
