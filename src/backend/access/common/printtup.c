@@ -74,7 +74,7 @@ typedef struct
 DestReceiver *
 printtup_create_DR(CommandDest dest)
 {
-	DR_printtup *self = (DR_printtup *) palloc0(sizeof(DR_printtup));
+	DR_printtup *self = palloc0_object(DR_printtup);
 
 	if (MyProcPort && MyProcPort->protocol_config->fn_printtup)
 	{

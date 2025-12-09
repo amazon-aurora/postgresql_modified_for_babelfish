@@ -1136,7 +1136,7 @@ heap_beginscan(Relation relation, Snapshot snapshot,
 	 */
 	if (flags & SO_TYPE_BITMAPSCAN)
 	{
-		BitmapHeapScanDesc bscan = palloc(sizeof(BitmapHeapScanDescData));
+		BitmapHeapScanDesc bscan = palloc_object(BitmapHeapScanDescData);
 
 		/*
 		 * Bitmap Heap scans do not have any fields that a normal Heap Scan
@@ -1145,7 +1145,7 @@ heap_beginscan(Relation relation, Snapshot snapshot,
 		scan = (HeapScanDesc) bscan;
 	}
 	else
-		scan = (HeapScanDesc) palloc(sizeof(HeapScanDescData));
+		scan = (HeapScanDesc) palloc_object(HeapScanDescData);
 
 	scan->rs_base.rs_rd = relation;
 	scan->rs_base.rs_snapshot = snapshot;
@@ -1204,7 +1204,7 @@ heap_beginscan(Relation relation, Snapshot snapshot,
 	 * when doing a parallel scan.
 	 */
 	if (parallel_scan != NULL)
-		scan->rs_parallelworkerdata = palloc(sizeof(ParallelBlockTableScanWorkerData));
+		scan->rs_parallelworkerdata = palloc_object(ParallelBlockTableScanWorkerData);
 	else
 		scan->rs_parallelworkerdata = NULL;
 
@@ -1213,7 +1213,7 @@ heap_beginscan(Relation relation, Snapshot snapshot,
 	 * initscan() and we don't want to allocate memory again
 	 */
 	if (nkeys > 0)
-		scan->rs_base.rs_key = (ScanKey) palloc(sizeof(ScanKeyData) * nkeys);
+		scan->rs_base.rs_key = palloc_array(ScanKeyData, nkeys);
 	else
 		scan->rs_base.rs_key = NULL;
 
@@ -2045,7 +2045,7 @@ GetBulkInsertState(void)
 {
 	BulkInsertState bistate;
 
-	bistate = (BulkInsertState) palloc(sizeof(BulkInsertStateData));
+	bistate = (BulkInsertState) palloc_object(BulkInsertStateData);
 	bistate->strategy = GetAccessStrategy(BAS_BULKWRITE);
 	bistate->current_buf = InvalidBuffer;
 	bistate->next_free = InvalidBlockNumber;
@@ -6919,7 +6919,7 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 	 * even member XIDs >= OldestXmin often won't be kept by second pass.
 	 */
 	nnewmembers = 0;
-	newmembers = palloc(sizeof(MultiXactMember) * nmembers);
+	newmembers = palloc_array(MultiXactMember, nmembers);
 	has_lockers = false;
 	update_xid = InvalidTransactionId;
 	update_committed = false;
@@ -8735,7 +8735,7 @@ bottomup_sort_and_shrink(TM_IndexDeleteOp *delstate)
 	Assert(delstate->ndeltids > 0);
 
 	/* Calculate per-heap-block count of TIDs */
-	blockgroups = palloc(sizeof(IndexDeleteCounts) * delstate->ndeltids);
+	blockgroups = palloc_array(IndexDeleteCounts, delstate->ndeltids);
 	for (int i = 0; i < delstate->ndeltids; i++)
 	{
 		TM_IndexDelete *ideltid = &delstate->deltids[i];

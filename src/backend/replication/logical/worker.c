@@ -880,7 +880,7 @@ create_edata_for_relation(LogicalRepRelMapEntry *rel)
 	List	   *perminfos = NIL;
 	ResultRelInfo *resultRelInfo;
 
-	edata = (ApplyExecutionData *) palloc0(sizeof(ApplyExecutionData));
+	edata = palloc0_object(ApplyExecutionData);
 	edata->targetRel = rel;
 
 	edata->estate = estate = CreateExecutorState();
@@ -1707,7 +1707,7 @@ stream_start_internal(TransactionId xid, bool first_segment)
 
 		oldctx = MemoryContextSwitchTo(ApplyContext);
 
-		MyLogicalRepWorker->stream_fileset = palloc(sizeof(FileSet));
+		MyLogicalRepWorker->stream_fileset = palloc_object(FileSet);
 		FileSetInit(MyLogicalRepWorker->stream_fileset);
 
 		MemoryContextSwitchTo(oldctx);
@@ -3971,7 +3971,7 @@ store_flush_position(XLogRecPtr remote_lsn, XLogRecPtr local_lsn)
 	MemoryContextSwitchTo(ApplyContext);
 
 	/* Track commit lsn  */
-	flushpos = (FlushPosition *) palloc(sizeof(FlushPosition));
+	flushpos = palloc_object(FlushPosition);
 	flushpos->local_end = local_lsn;
 	flushpos->remote_end = remote_lsn;
 

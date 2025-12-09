@@ -101,7 +101,7 @@ static EphemeralNamedRelation find_pg_depend_tuple(QueryEnvironment *qe, HeapTup
 QueryEnvironment *
 create_queryEnv(void)
 {
-	return (QueryEnvironment *) palloc0(sizeof(QueryEnvironment));
+	return palloc0_object(QueryEnvironment);
 }
 
 /*

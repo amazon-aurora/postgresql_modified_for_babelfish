@@ -1293,7 +1293,7 @@ group_similar_or_args(PlannerInfo *root, RelOptInfo *rel, RestrictInfo *rinfo)
 	 * which will be used to sort these arguments at the next step.
 	 */
 	i = -1;
-	matches = (OrArgIndexMatch *) palloc(sizeof(OrArgIndexMatch) * n);
+	matches = palloc_array(OrArgIndexMatch, n);
 	foreach(lc, orargs)
 	{
 		Node	   *arg = lfirst(lc);
@@ -1855,8 +1855,7 @@ choose_bitmap_and(PlannerInfo *root, RelOptInfo *rel, List *paths)
 	 * same set of clauses; keep only the cheapest-to-scan of any such groups.
 	 * The surviving paths are put into an array for qsort'ing.
 	 */
-	pathinfoarray = (PathClauseUsage **)
-		palloc(npaths * sizeof(PathClauseUsage *));
+	pathinfoarray = palloc_array(PathClauseUsage *, npaths);
 	clauselist = NIL;
 	npaths = 0;
 	foreach(l, paths)
@@ -2092,7 +2091,7 @@ classify_index_clause_usage(Path *path, List **clauselist)
 	Bitmapset  *clauseids;
 	ListCell   *lc;
 
-	result = (PathClauseUsage *) palloc(sizeof(PathClauseUsage));
+	result = palloc_object(PathClauseUsage);
 	result->path = path;
 
 	/* Recursively find the quals and preds used by the path */

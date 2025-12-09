@@ -1260,7 +1260,7 @@ pg_xml_init(PgXmlStrictness strictness)
 	pg_xml_init_library();
 
 	/* Create error handling context structure */
-	errcxt = (PgXmlErrorContext *) palloc(sizeof(PgXmlErrorContext));
+	errcxt = palloc_object(PgXmlErrorContext);
 	errcxt->magic = ERRCXT_MAGIC;
 	errcxt->strictness = strictness;
 	errcxt->err_occurred = false;
@@ -4747,10 +4747,10 @@ XmlTableInitOpaque(TableFuncScanState *state, int natts)
 	XmlTableBuilderData *xtCxt;
 	PgXmlErrorContext *xmlerrcxt;
 
-	xtCxt = palloc0(sizeof(XmlTableBuilderData));
+	xtCxt = palloc0_object(XmlTableBuilderData);
 	xtCxt->magic = XMLTABLE_CONTEXT_MAGIC;
 	xtCxt->natts = natts;
-	xtCxt->xpathscomp = palloc0(sizeof(xmlXPathCompExprPtr) * natts);
+	xtCxt->xpathscomp = palloc0_array(xmlXPathCompExprPtr, natts);
 
 	xmlerrcxt = pg_xml_init(PG_XML_STRICTNESS_ALL);
 
