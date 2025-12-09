@@ -1732,6 +1732,7 @@ MultiXactMember
 MultiXactOffset
 MultiXactStateData
 MultiXactStatus
+MultiXactWriter
 MultirangeIOData
 MultirangeParseState
 MultirangeType
@@ -1817,6 +1818,7 @@ OffsetVarNodes_context
 Oid
 OidOptions
 OkeysState
+OldMultiXactReader
 OldToNewMapping
 OldToNewMappingData
 OnCommitAction
@@ -2815,6 +2817,7 @@ SlruCtlData
 SlruErrorCause
 SlruPageStatus
 SlruScanCallback
+SlruSegState
 SlruShared
 SlruSharedData
 SlruWriteAll
