@@ -70,10 +70,14 @@
  *--------------------
  */
 
+/*
+ * MATCH_LOWER is defined for ILIKE in the C locale as an optimization. Other
+ * locales must casefold the inputs before matching.
+ */
 #ifdef MATCH_LOWER
-#define GETCHAR(t, locale) MATCH_LOWER(t, locale)
+#define GETCHAR(t) pg_ascii_tolower(t)
 #else
-#define GETCHAR(t, locale) (t)
+#define GETCHAR(t) (t)
 #endif
 
 #define BBF_ESC_CHAR_REPLC "\357\277\277"
@@ -119,7 +123,7 @@ MatchText(const char *t, int tlen, const char *p, int plen, pg_locale_t locale)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_ESCAPE_SEQUENCE),
 						 errmsg("LIKE pattern must not end with escape character")));
-			if (GETCHAR(*p, locale) != GETCHAR(*t, locale))
+			if (GETCHAR(*p) != GETCHAR(*t))
 				return LIKE_FALSE;
 		}
 		else if (*p == '%')
@@ -181,7 +185,7 @@ MatchText(const char *t, int tlen, const char *p, int plen, pg_locale_t locale)
 					ereport(ERROR,
 							(errcode(ERRCODE_INVALID_ESCAPE_SEQUENCE),
 							 errmsg("LIKE pattern must not end with escape character")));
-				firstpat = GETCHAR(p[1], locale);
+				firstpat = GETCHAR(p[1]);
 			}
 			else if (sql_dialect == SQL_DIALECT_TSQL && strncmp(p, BBF_ESC_CHAR_REPLC, BBF_ESC_CHAR_REPLC_LEN) == 0)
 			{
@@ -193,11 +197,11 @@ MatchText(const char *t, int tlen, const char *p, int plen, pg_locale_t locale)
 				firstpat = GETCHAR(p[esc_len], locale);
 			}
 			else
-				firstpat = GETCHAR(*p, locale);
+				firstpat = GETCHAR(*p);
 
 			while (tlen > 0)
 			{
-				if (GETCHAR(*t, locale) == firstpat || (locale && !locale->deterministic))
+				if (GETCHAR(*t) == firstpat || (locale && !locale->deterministic))
 				{
 					int			matched = MatchText(t, tlen, p, plen, locale);
 
@@ -431,7 +435,7 @@ MatchText(const char *t, int tlen, const char *p, int plen, pg_locale_t locale)
 					NextChar(t1, t1len);
 			}
 		}
-		else if (GETCHAR(*p, locale) != GETCHAR(*t, locale))
+		else if (GETCHAR(*p) != GETCHAR(*t))
 		{
 			/* non-wildcard pattern char fails to match text char */
 			return LIKE_FALSE;
