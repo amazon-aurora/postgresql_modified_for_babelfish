@@ -19186,6 +19186,7 @@ AlterRelationNamespaceInternal(Relation classRel, Oid relOid,
 			changeDependencyFor(RelationRelationId,
 								relOid,
 								NamespaceRelationId,
+								oldNspOid,
 								newNspOid) != 1)
 			elog(ERROR, "could not change schema dependency for relation \"%s\"",
 				 NameStr(classForm->relname));
