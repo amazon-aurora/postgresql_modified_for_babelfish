@@ -2334,6 +2334,7 @@ PrintfArgValue
 PrintfTarget
 PrinttupAttrInfo
 PrivTarget
+PrivateRefCountData
 PrivateRefCountEntry
 ProcArrayStruct
 ProcLangInfo
