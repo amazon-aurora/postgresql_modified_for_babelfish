@@ -360,6 +360,7 @@ SerialControl	"Waiting to read or update shared <filename>pg_serial</filename> s
 TsqlApplockSync	"Waiting to read or update Applock local and global hashmaps of Babelfish."
 AioWorkerSubmissionQueue	"Waiting to access AIO worker submission queue."
 WaitLSN	"Waiting to read or update shared Wait-for-LSN state."
+LogicalDecodingControl	"Waiting to read or update logical decoding status information."
 
 #
 # END OF PREDEFINED LWLOCKS (DO NOT CHANGE THIS LINE)
