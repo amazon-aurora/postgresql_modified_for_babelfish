@@ -290,7 +290,7 @@ ConstructTupleDescriptor(Relation heapRelation,
 	int			numkeyatts = indexInfo->ii_NumIndexKeyAttrs;
 	ListCell   *colnames_item = list_head(indexColNames);
 	ListCell   *indexpr_item = list_head(indexInfo->ii_Expressions);
-	IndexAmRoutine *amroutine;
+	const IndexAmRoutine *amroutine;
 	TupleDesc	heapTupDesc;
 	TupleDesc	indexTupDesc;
 	int			natts;			/* #atts in heap rel --- for error checks */
@@ -481,8 +481,6 @@ ConstructTupleDescriptor(Relation heapRelation,
 
 		populate_compact_attribute(indexTupDesc, i);
 	}
-
-	pfree(amroutine);
 
 	return indexTupDesc;
 }

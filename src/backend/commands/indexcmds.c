@@ -192,7 +192,7 @@ CheckIndexCompatible(Oid oldId,
 	HeapTuple	tuple;
 	Form_pg_index indexForm;
 	Form_pg_am	accessMethodForm;
-	IndexAmRoutine *amRoutine;
+	const IndexAmRoutine *amRoutine;
 	bool		amcanorder;
 	bool		amsummarizing;
 	int16	   *coloptions;
@@ -568,7 +568,7 @@ DefineIndex(Oid tableId,
 	Relation	rel;
 	HeapTuple	tuple;
 	Form_pg_am	accessMethodForm;
-	IndexAmRoutine *amRoutine;
+	const IndexAmRoutine *amRoutine;
 	bool		amcanorder;
 	bool		amissummarizing;
 	amoptions_function amoptions;
@@ -897,7 +897,6 @@ DefineIndex(Oid tableId,
 	amoptions = amRoutine->amoptions;
 	amissummarizing = amRoutine->amsummarizing;
 
-	pfree(amRoutine);
 	ReleaseSysCache(tuple);
 
 	/*
