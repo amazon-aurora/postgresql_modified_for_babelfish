@@ -421,7 +421,7 @@ bbf_selectDumpableObject(DumpableObject *dobj, Archive *fout)
 							 * are not marked to be dumped so catalog table data explicitly
 							 * need to be marked as dumpable.
 							 */
-							if (isBabelfishConfigTable(fout, tbinfo) && !fout->dopt->dumpData)
+							if (isBabelfishConfigTable(fout, tbinfo) && fout->dopt->dumpSchema)
 							{
 								tbinfo->dobj.dump |= DUMP_COMPONENT_DATA;
 								/* also prepare the dumpable object upfront */
