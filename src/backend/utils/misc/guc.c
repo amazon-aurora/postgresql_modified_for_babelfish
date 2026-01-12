@@ -732,7 +732,7 @@ string_field_used(struct config_string *conf, char *strval)
 			strval == stack->masked.val.stringval)
 			return true;
 	}
-	for (stack = conf->gen.session_stack; stack; stack = stack->prev)
+	for (GucStack *stack = conf->gen.session_stack; stack; stack = stack->prev)
 	{
 		if (strval == stack->prior.val.stringval ||
 			strval == stack->masked.val.stringval)
