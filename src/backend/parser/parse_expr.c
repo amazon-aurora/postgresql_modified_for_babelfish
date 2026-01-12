@@ -41,6 +41,7 @@
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/timestamp.h"
+#include "utils/typcache.h"
 #include "utils/xml.h"
 
 /* GUC parameters */
