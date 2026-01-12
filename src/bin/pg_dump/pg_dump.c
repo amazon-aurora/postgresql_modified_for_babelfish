@@ -11187,7 +11187,7 @@ fetchAttributeStats(Archive *fout)
 static char *
 dumpRelationStats_dumper(Archive *fout, const void *userArg, const TocEntry *te)
 {
-	const RelStatsInfo *rsinfo = (RelStatsInfo *) userArg;
+	const RelStatsInfo *rsinfo = userArg;
 	static PGresult *res;
 	static int	rownum;
 	PQExpBuffer query;
