@@ -2853,7 +2853,7 @@ apply_handle_update(StringInfo s)
 		/* Add TSQL ROWVERSION/TIMESTAMP column to updatedCols */
 		else if (!att->attisdropped && !att->attgenerated &&
 			is_tsql_rowversion_or_timestamp_datatype_hook &&
-			is_tsql_rowversion_or_timestamp_datatype_hook(att->atttypid))
+			is_tsql_rowversion_or_timestamp_datatype_hook(TupleDescAttr(remoteslot->tts_tupleDescriptor, i)->atttypid))
 		{
 			target_perminfo->updatedCols =
 				bms_add_member(target_perminfo->updatedCols,
