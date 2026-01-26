@@ -732,7 +732,7 @@ string_field_used(struct config_generic *conf, char *strval)
 			strval == stack->masked.val.stringval)
 			return true;
 	}
-	for (GucStack *stack = conf->gen.session_stack; stack; stack = stack->prev)
+	for (GucStack *stack = conf->session_stack; stack; stack = stack->prev)
 	{
 		if (strval == stack->prior.val.stringval ||
 			strval == stack->masked.val.stringval)
@@ -6845,9 +6845,9 @@ guc_set_extra_field(struct config_generic *gconf, void **field, void *newval)
 }
 
 void
-guc_set_string_field(struct config_string *conf, char **field, char *newval)
+guc_set_string_field(struct config_generic *gconf, char **field, char *newval)
 {
-	set_string_field(conf, field, newval);
+	set_string_field(gconf, field, newval);
 }
 
 void

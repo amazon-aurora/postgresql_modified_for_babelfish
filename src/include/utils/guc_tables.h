@@ -337,7 +337,7 @@ extern char *config_enum_get_options(const struct config_enum *record,
 									 const char *suffix,
 									 const char *separator);
 
-extern void guc_set_string_field(struct config_string *conf, char **field, char *newval);
+extern void guc_set_string_field(struct config_generic *gconf, char **field, char *newval);
 extern void guc_set_extra_field(struct config_generic *gconf, void **field, void *newval);
 extern void guc_set_stack_value(struct config_generic *gconf, config_var_value *val);
 
