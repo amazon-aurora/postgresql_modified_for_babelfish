@@ -3011,7 +3011,8 @@ _tocEntryRequired(TocEntry *te, teSection curSection, ArchiveHandle *AH)
 	if (strcmp(te->desc, "BABELFISHGUCS") == 0 ||
 		strcmp(te->desc, "BABELFISHCHECKS") == 0)
 		return res;
-	if (strcmp(te->desc, "STATISTICS DATA") == 0)
+	if ((strcmp(te->desc, "STATISTICS DATA") == 0) ||
+		(strcmp(te->desc, "EXTENDED STATISTICS DATA") == 0))
 	{
 		if (!ropt->dumpStatistics)
 			return 0;
