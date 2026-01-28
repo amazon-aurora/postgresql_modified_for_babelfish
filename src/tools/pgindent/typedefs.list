@@ -2576,8 +2576,8 @@ ReorderBufferTupleCidEnt
 ReorderBufferTupleCidKey
 ReorderBufferUpdateProgressTxnCB
 ReorderTuple
-RepOriginId
 ReparameterizeForeignPathByChild_function
+ReplOriginId
 ReplaceVarsFromTargetList_context
 ReplaceVarsNoMatchOption
 ReplaceWrapOption

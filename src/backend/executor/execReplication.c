@@ -481,7 +481,7 @@ update_most_recent_deletion_info(Relation rel,
 								 TransactionId oldestxmin,
 								 TransactionId *delete_xid,
 								 TimestampTz *delete_time,
-								 RepOriginId *delete_origin)
+								 ReplOriginId *delete_origin)
 {
 	BufferHeapTupleTableSlot *hslot;
 	HeapTuple	tuple;
@@ -489,7 +489,7 @@ update_most_recent_deletion_info(Relation rel,
 	bool		recently_dead = false;
 	TransactionId xmax;
 	TimestampTz localts;
-	RepOriginId localorigin;
+	ReplOriginId localorigin;
 
 	hslot = (BufferHeapTupleTableSlot *) scanslot;
 
@@ -563,7 +563,7 @@ bool
 RelationFindDeletedTupleInfoSeq(Relation rel, TupleTableSlot *searchslot,
 								TransactionId oldestxmin,
 								TransactionId *delete_xid,
-								RepOriginId *delete_origin,
+								ReplOriginId *delete_origin,
 								TimestampTz *delete_time)
 {
 	TupleTableSlot *scanslot;
@@ -575,7 +575,7 @@ RelationFindDeletedTupleInfoSeq(Relation rel, TupleTableSlot *searchslot,
 	Assert(equalTupleDescs(desc, searchslot->tts_tupleDescriptor));
 
 	*delete_xid = InvalidTransactionId;
-	*delete_origin = InvalidRepOriginId;
+	*delete_origin = InvalidReplOriginId;
 	*delete_time = 0;
 
 	/*
@@ -633,7 +633,7 @@ RelationFindDeletedTupleInfoByIndex(Relation rel, Oid idxoid,
 									TupleTableSlot *searchslot,
 									TransactionId oldestxmin,
 									TransactionId *delete_xid,
-									RepOriginId *delete_origin,
+									ReplOriginId *delete_origin,
 									TimestampTz *delete_time)
 {
 	Relation	idxrel;
@@ -650,7 +650,7 @@ RelationFindDeletedTupleInfoByIndex(Relation rel, Oid idxoid,
 
 	*delete_xid = InvalidTransactionId;
 	*delete_time = 0;
-	*delete_origin = InvalidRepOriginId;
+	*delete_origin = InvalidReplOriginId;
 
 	isIdxSafeToSkipDuplicates = (GetRelationIdentityOrPK(rel) == idxoid);
 
