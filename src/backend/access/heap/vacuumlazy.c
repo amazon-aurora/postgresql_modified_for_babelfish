@@ -3760,7 +3760,7 @@ heap_page_would_be_all_visible(Relation rel, Buffer buf,
 
 		/* Visibility checks may do IO or allocate memory */
 		Assert(CritSectionCount == 0);
-		switch (HeapTupleSatisfiesVacuum(&tuple, OldestXmin, buf))
+		switch (HeapTupleSatisfiesVacuum(rel, &tuple, OldestXmin, buf))
 		{
 			case HEAPTUPLE_LIVE:
 				{
