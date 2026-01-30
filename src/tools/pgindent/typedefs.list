@@ -2805,6 +2805,7 @@ SharedTypmodTableEntry
 Sharedsort
 ShellTypeInfo
 ShippableCacheEntry
+ShmemAllocatorData
 ShippableCacheKey
 ShmemIndexEnt
 ShutdownForeignScan_function
