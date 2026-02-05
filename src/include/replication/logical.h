@@ -153,7 +153,8 @@ extern void UpdateDecodingStats(LogicalDecodingContext *ctx);
 typedef void (*logicalrep_modify_slot_hook_type)(Relation rel, EState *estate, TupleTableSlot *slot);
 extern PGDLLEXPORT logicalrep_modify_slot_hook_type logicalrep_modify_slot_hook;
 
-extern bool LogicalReplicationSlotHasPendingWal(XLogRecPtr end_of_wal);
+extern XLogRecPtr LogicalReplicationSlotCheckPendingWal(XLogRecPtr end_of_wal,
+														XLogRecPtr scan_cutoff_lsn);
 extern XLogRecPtr LogicalSlotAdvanceAndCheckSnapState(XLogRecPtr moveto,
 													  bool *found_consistent_snapshot);
 
