@@ -804,6 +804,7 @@ ExtensibleNodeMethods
 ExtensionControlFile
 ExtensionInfo
 ExtensionLocation
+ExtensionSiblingCache
 ExtensionVersionInfo
 FDWCollateState
 FD_SET
