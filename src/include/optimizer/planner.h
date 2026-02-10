@@ -47,6 +47,7 @@ extern PGDLLEXPORT eval_const_expressions_in_preprocess_hook_type eval_const_exp
 /* Hook for plugins to get control after PlannerGlobal is initialized */
 typedef void (*planner_setup_hook_type) (PlannerGlobal *glob, Query *parse,
 										 const char *query_string,
+										 int cursorOptions,
 										 double *tuple_fraction,
 										 ExplainState *es);
 extern PGDLLIMPORT planner_setup_hook_type planner_setup_hook;
