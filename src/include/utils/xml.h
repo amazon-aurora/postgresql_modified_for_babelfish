@@ -25,7 +25,7 @@
 #include "utils/array.h"
 #endif
 
-typedef struct varlena xmltype;
+typedef varlena xmltype;
 
 typedef enum
 {
