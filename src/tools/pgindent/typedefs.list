@@ -2932,6 +2932,7 @@ SubLink
 SubLinkType
 SubOpts
 SubPlan
+SubPlanRTInfo
 SubPlanState
 SubRelInfo
 SubRemoveRels
