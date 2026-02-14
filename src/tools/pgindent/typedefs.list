@@ -4065,6 +4065,7 @@ qsort_comparator
 query_pathkeys_callback
 radius_attribute
 radius_packet
+RadixSortInfo
 rangeTableEntry_used_context
 rank_context
 rbt_allocfunc
