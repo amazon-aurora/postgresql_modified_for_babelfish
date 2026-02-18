@@ -5927,7 +5927,6 @@ SetupApplyOrSyncWorker(int worker_slot)
 
 	/* Setup signal handling */
 	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-	pqsignal(SIGTERM, die);
 	BackgroundWorkerUnblockSignals();
 
 	/*
