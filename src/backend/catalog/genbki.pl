@@ -804,7 +804,7 @@ print $fk_info "};\n\n#endif\t\t\t\t\t\t\t/* SYSTEM_FK_INFO_H */\n";
 # Now generate syscache info
 
 print_boilerplate($syscache_ids_fh, "syscache_ids.h", "SysCache identifiers");
-print $syscache_ids_fh "enum SysCacheIdentifier
+print $syscache_ids_fh "typedef enum SysCacheIdentifier
 {
 \tSYSCACHEID_INVALID = -1,\n";
 
@@ -854,7 +854,7 @@ foreach my $extension_syscache (@extension_syscaches)
 }
 
 # Finalize and define the SysCache sizes including extensions
-print $syscache_ids_fh "};\n";
+print $syscache_ids_fh "} SysCacheIdentifier;\n";
 
 print $syscache_ids_fh "#define SysCacheNoExtensionSize ($last_syscache + 1)\n";
 print $syscache_ids_fh "#define SysCacheSize ($last_extension_syscache + 1)\n";

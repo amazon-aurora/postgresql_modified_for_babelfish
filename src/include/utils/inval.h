@@ -17,6 +17,7 @@
 #include "access/htup.h"
 #include "storage/relfilelocator.h"
 #include "utils/relcache.h"
+#include "utils/syscache.h"
 
 extern PGDLLIMPORT int debug_discard_caches;
 
@@ -38,7 +39,8 @@ extern PGDLLIMPORT int debug_discard_caches;
 #endif							/* not DISCARD_CACHES_ENABLED */
 
 
-typedef void (*SyscacheCallbackFunction) (Datum arg, int cacheid, uint32 hashvalue);
+typedef void (*SyscacheCallbackFunction) (Datum arg, SysCacheIdentifier cacheid,
+										  uint32 hashvalue);
 typedef void (*RelcacheCallbackFunction) (Datum arg, Oid relid);
 typedef void (*RelSyncCallbackFunction) (Datum arg, Oid relid);
 
@@ -85,7 +87,7 @@ extern void CacheInvalidateSmgr(RelFileLocatorBackend rlocator);
 
 extern void CacheInvalidateRelmap(Oid databaseId);
 
-extern void CacheRegisterSyscacheCallback(int cacheid,
+extern void CacheRegisterSyscacheCallback(SysCacheIdentifier cacheid,
 										  SyscacheCallbackFunction func,
 										  Datum arg);
 
@@ -95,7 +97,7 @@ extern void CacheRegisterRelcacheCallback(RelcacheCallbackFunction func,
 extern void CacheRegisterRelSyncCallback(RelSyncCallbackFunction func,
 										 Datum arg);
 
-extern void CallSyscacheCallbacks(int cacheid, uint32 hashvalue);
+extern void CallSyscacheCallbacks(SysCacheIdentifier cacheid, uint32 hashvalue);
 
 extern void CallRelSyncCallbacks(Oid relid);
 
