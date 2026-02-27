@@ -48,6 +48,7 @@
 #include "parser/parser.h"
 #include "storage/lmgr.h"
 #include "storage/predicate.h"
+#include "storage/proc.h"
 #include "storage/procarray.h"
 #include "utils/datum.h"
 #include "utils/injection_point.h"
