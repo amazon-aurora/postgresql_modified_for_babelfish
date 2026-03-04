@@ -4319,9 +4319,10 @@ typedef struct AlterTSConfigurationStmt
 typedef struct PublicationTable
 {
 	NodeTag		type;
-	RangeVar   *relation;		/* relation to be published */
+	RangeVar   *relation;		/* publication relation */
 	Node	   *whereClause;	/* qualifications */
 	List	   *columns;		/* List of columns in a publication table */
+	bool		except;			/* True if listed in the EXCEPT clause */
 } PublicationTable;
 
 /*
@@ -4330,6 +4331,7 @@ typedef struct PublicationTable
 typedef enum PublicationObjSpecType
 {
 	PUBLICATIONOBJ_TABLE,		/* A table */
+	PUBLICATIONOBJ_EXCEPT_TABLE,	/* A table in the EXCEPT clause */
 	PUBLICATIONOBJ_TABLES_IN_SCHEMA,	/* All tables in schema */
 	PUBLICATIONOBJ_TABLES_IN_CUR_SCHEMA,	/* All tables in first element of
 											 * search_path */
@@ -4358,6 +4360,7 @@ typedef struct PublicationAllObjSpec
 {
 	NodeTag		type;
 	PublicationAllObjType pubobjtype;	/* type of this publication object */
+	List	   *except_tables;	/* tables specified in the EXCEPT clause */
 	ParseLoc	location;		/* token location, or -1 if unknown */
 } PublicationAllObjSpec;
 
