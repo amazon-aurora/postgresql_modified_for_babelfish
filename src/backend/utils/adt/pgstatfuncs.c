@@ -31,6 +31,7 @@
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/timestamp.h"
+#include "utils/wait_event.h"
 
 tsql_has_pgstat_permissions_hook_type tsql_has_pgstat_permissions_hook = NULL;
 
