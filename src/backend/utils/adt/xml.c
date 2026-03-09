@@ -534,7 +534,7 @@ xmltext(PG_FUNCTION_ARGS)
 #ifdef USE_LIBXML
 	text	   *arg = PG_GETARG_TEXT_PP(0);
 	text	   *result;
-	volatile xmlChar *xmlbuf = NULL;
+	xmlChar    *volatile xmlbuf = NULL;
 	PgXmlErrorContext *xmlerrcxt;
 
 	/* First we gotta spin up some error handling. */
@@ -549,19 +549,19 @@ xmltext(PG_FUNCTION_ARGS)
 						"could not allocate xmlChar");
 
 		result = cstring_to_text_with_len((const char *) xmlbuf,
-										  xmlStrlen((const xmlChar *) xmlbuf));
+										  xmlStrlen(xmlbuf));
 	}
 	PG_CATCH();
 	{
 		if (xmlbuf)
-			xmlFree((xmlChar *) xmlbuf);
+			xmlFree(xmlbuf);
 
 		pg_xml_done(xmlerrcxt, true);
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
 
-	xmlFree((xmlChar *) xmlbuf);
+	xmlFree(xmlbuf);
 	pg_xml_done(xmlerrcxt, false);
 
 	PG_RETURN_XML_P(result);
@@ -4252,7 +4252,7 @@ xml_xmlnodetoxmltype(xmlNodePtr cur, PgXmlErrorContext *xmlerrcxt)
 	}
 	else
 	{
-		volatile xmlChar *str = NULL;
+		xmlChar    *volatile str = NULL;
 
 		PG_TRY();
 		{
@@ -4272,7 +4272,7 @@ xml_xmlnodetoxmltype(xmlNodePtr cur, PgXmlErrorContext *xmlerrcxt)
 		PG_FINALLY();
 		{
 			if (str)
-				xmlFree((xmlChar *) str);
+				xmlFree(str);
 		}
 		PG_END_TRY();
 	}
