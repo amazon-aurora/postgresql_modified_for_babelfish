@@ -1767,6 +1767,7 @@ typedef struct JsonIsPredicate
 	JsonFormat *format;			/* FORMAT clause, if specified */
 	JsonValueType item_type;	/* JSON item type */
 	bool		unique_keys;	/* check key uniqueness? */
+	Oid			exprBaseType;	/* base type of the subject expression */
 	ParseLoc	location;		/* token location, or -1 if unknown */
 } JsonIsPredicate;
 
