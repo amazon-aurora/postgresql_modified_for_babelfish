@@ -730,6 +730,8 @@ RelationBuildTupleDesc(Relation relation)
 		pfree(constr);
 		relation->rd_att->constr = NULL;
 	}
+
+	TupleDescFinalize(relation->rd_att);
 }
 
 /*
@@ -1987,6 +1989,7 @@ formrdesc(const char *relationName, Oid relationReltype,
 
 	/* initialize first attribute's attcacheoff, cf RelationBuildTupleDesc */
 	TupleDescCompactAttr(relation->rd_att, 0)->attcacheoff = 0;
+	TupleDescFinalize(relation->rd_att);
 
 	/* mark not-null status */
 	if (has_not_null)
@@ -3690,6 +3693,8 @@ RelationBuildLocalRelation(const char *relname,
 	for (i = 0; i < natts; i++)
 		TupleDescAttr(rel->rd_att, i)->attrelid = relid;
 
+	TupleDescFinalize(rel->rd_att);
+
 	rel->rd_rel->reltablespace = reltablespace;
 
 	if (mapped_relation)
@@ -4454,6 +4459,7 @@ BuildHardcodedDescriptor(int natts, const FormData_pg_attribute *attrs)
 
 	/* initialize first attribute's attcacheoff, cf RelationBuildTupleDesc */
 	TupleDescCompactAttr(result, 0)->attcacheoff = 0;
+	TupleDescFinalize(result);
 
 	/* Note: we don't bother to set up a TupleConstr entry */
 
@@ -6302,6 +6308,8 @@ load_relcache_init_file(bool shared)
 
 			populate_compact_attribute(rel->rd_att, i);
 		}
+
+		TupleDescFinalize(rel->rd_att);
 
 		/* next read the access method specific field */
 		if (fread(&len, 1, sizeof(len), fp) != sizeof(len))
