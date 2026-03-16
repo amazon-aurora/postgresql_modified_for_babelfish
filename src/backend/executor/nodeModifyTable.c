@@ -54,11 +54,13 @@
 
 #include "access/htup_details.h"
 #include "access/tableam.h"
+#include "access/tupconvert.h"
 #include "access/xact.h"
 #include "commands/trigger.h"
 #include "commands/defrem.h"
 #include "executor/execPartition.h"
 #include "executor/executor.h"
+#include "executor/instrument.h"
 #include "executor/nodeModifyTable.h"
 #include "executor/tstoreReceiver.h"
 #include "foreign/fdwapi.h"
