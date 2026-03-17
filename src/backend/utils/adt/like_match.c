@@ -194,7 +194,7 @@ MatchText(const char *t, int tlen, const char *p, int plen, pg_locale_t locale)
 					ereport(ERROR,
 							(errcode(ERRCODE_INVALID_ESCAPE_SEQUENCE),
 							 errmsg("LIKE pattern must not end with escape character")));
-				firstpat = GETCHAR(p[esc_len], locale);
+				firstpat = GETCHAR(p[esc_len]);
 			}
 			else
 				firstpat = GETCHAR(*p);
@@ -267,7 +267,7 @@ MatchText(const char *t, int tlen, const char *p, int plen, pg_locale_t locale)
 						find_match = true;
 					}
 				}
-				else if (GETCHAR(*p, locale) == GETCHAR(*t, locale))
+				else if (GETCHAR(*p) == GETCHAR(*t))
 				{
 					prev = p;
 					NextByte(p, plen);
