@@ -25,7 +25,7 @@ extern char *bbf_db_name;
 extern void bbf_selectDumpableObject(DumpableObject *dobj, Archive *fout);
 extern void fixTsqlDefaultExpr(Archive *fout, AttrDefInfo *attrDefInfo);
 extern bool isBabelfishDatabase(Archive *fout);
-extern bool isBabelfishConfigTable(Archive *fout, TableInfo *tbinfo);
+extern bool isBabelfishConfigTable(Archive *fout, const TableInfo *tbinfo);
 extern void fixOprRegProc(Archive *fout, const OprInfo *oprinfo, const char *oprleft, const char *oprright, char **oprregproc);
 extern void fixTsqlTableTypeDependency(Archive *fout, DumpableObject *func, DumpableObject *tabletype, char deptype);
 extern bool isTsqlTableType(Archive *fout, const TableInfo *tbinfo);
@@ -37,11 +37,11 @@ extern void prepareForBabelfishDatabaseDump(Archive *fout, SimpleStringList *sch
 extern void setBabelfishDependenciesForLogicalDatabaseDump(Archive *fout);
 extern void dumpBabelGUCs(Archive *fout);
 extern void dumpBabelPhysicalDatabaseACLs(Archive *fout);
-extern void fixCopyCommand(Archive *fout, PQExpBuffer copyBuf, TableInfo *tbinfo, bool isFrom);
-extern bool bbfIsDumpWithInsert(Archive *fout, TableInfo *tbinfo);
-extern void addFromClauseForBabelfishCatalogTable(PQExpBuffer buf, TableInfo *tbinfo);
+extern void fixCopyCommand(Archive *fout, PQExpBuffer copyBuf, const TableInfo *tbinfo, bool isFrom);
+extern bool bbfIsDumpWithInsert(Archive *fout, const TableInfo *tbinfo);
+extern void addFromClauseForBabelfishCatalogTable(PQExpBuffer buf, const TableInfo *tbinfo);
 extern void fixCursorForBbfTableData(Archive *fout,
-                                     TableInfo *tbinfo,
+                                     const TableInfo *tbinfo,
                                      PQExpBuffer buf,
                                      int *nfields,
                                      int *nfields_new,

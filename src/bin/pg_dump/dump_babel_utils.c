@@ -39,11 +39,11 @@ static char *babel_init_user = NULL;
 static Oid pltsql_langid = InvalidOid;
 
 static char *getMinOid(Archive *fout);
-static void addFromClauseForLogicalDatabaseDump(PQExpBuffer buf, TableInfo *tbinfo);
-static void addFromClauseForPhysicalDatabaseDump(PQExpBuffer buf, TableInfo *tbinfo);
+static void addFromClauseForLogicalDatabaseDump(PQExpBuffer buf, const TableInfo *tbinfo);
+static void addFromClauseForPhysicalDatabaseDump(PQExpBuffer buf, const TableInfo *tbinfo);
 static int getMbstrlen(const char *mbstr,Archive *fout);
 static bool is_ms_shipped(DumpableObject *dobj, Archive *fout);
-static bool hasSqlvariantColumn(TableInfo *tbinfo);
+static bool hasSqlvariantColumn(const TableInfo *tbinfo);
 
 /* enum to check if database to be dumped is a Babelfish Database */
 typedef enum {
@@ -169,7 +169,7 @@ is_ms_shipped(DumpableObject *dobj, Archive *fout)
  * table data needs to be dumped), false otherwise.
  */
 bool
-isBabelfishConfigTable(Archive *fout, TableInfo *tbinfo)
+isBabelfishConfigTable(Archive *fout, const TableInfo *tbinfo)
 {
 	if (!isBabelfishDatabase(fout))
 		return false;
@@ -1100,7 +1100,7 @@ setBabelfishDependenciesForLogicalDatabaseDump(Archive *fout)
  * corresponding to specified logical database.
  */
 static void
-addFromClauseForLogicalDatabaseDump(PQExpBuffer buf, TableInfo *tbinfo)
+addFromClauseForLogicalDatabaseDump(PQExpBuffer buf, const TableInfo *tbinfo)
 {
 	if (strcmp(tbinfo->dobj.name, "babelfish_sysdatabases") == 0)
 	{
@@ -1166,7 +1166,7 @@ addFromClauseForLogicalDatabaseDump(PQExpBuffer buf, TableInfo *tbinfo)
  * in the Babelfish database.
  */
 static void
-addFromClauseForPhysicalDatabaseDump(PQExpBuffer buf, TableInfo *tbinfo)
+addFromClauseForPhysicalDatabaseDump(PQExpBuffer buf, const TableInfo *tbinfo)
 {
 	if (strcmp(tbinfo->dobj.name, "babelfish_sysdatabases") == 0)
 	{
@@ -1227,7 +1227,7 @@ addFromClauseForPhysicalDatabaseDump(PQExpBuffer buf, TableInfo *tbinfo)
  * Wrapper function to add FROM clause for a Babelfish catalog table.
  */
 void
-addFromClauseForBabelfishCatalogTable(PQExpBuffer buf, TableInfo *tbinfo)
+addFromClauseForBabelfishCatalogTable(PQExpBuffer buf, const TableInfo *tbinfo)
 {
 	/* Add FROM clause differently for physical or logical database dump. */
 	if (bbf_db_name == NULL)
@@ -1242,7 +1242,7 @@ addFromClauseForBabelfishCatalogTable(PQExpBuffer buf, TableInfo *tbinfo)
  * the data corresponding to specified physical/logical database.
  */
 static void
-fixCursorForBbfCatalogTableData(Archive *fout, TableInfo *tbinfo, PQExpBuffer buf, int *nfields, char *attgenerated)
+fixCursorForBbfCatalogTableData(Archive *fout, const TableInfo *tbinfo, PQExpBuffer buf, int *nfields, char *attgenerated)
 {
 	int 	i;
 	bool	is_builtin_db = false;
@@ -1346,7 +1346,7 @@ fixCursorForBbfCatalogTableData(Archive *fout, TableInfo *tbinfo, PQExpBuffer bu
  * isFrom decides whether we are copying FROM or TO.
  */
 void
-fixCopyCommand(Archive *fout, PQExpBuffer copyBuf, TableInfo *tbinfo, bool isFrom)
+fixCopyCommand(Archive *fout, PQExpBuffer copyBuf, const TableInfo *tbinfo, bool isFrom)
 {
 	PQExpBuffer	q;
 	int			i;
@@ -1459,7 +1459,7 @@ fixCopyCommand(Archive *fout, PQExpBuffer copyBuf, TableInfo *tbinfo, bool isFro
  * possible with COPY statements.
  */
 bool
-bbfIsDumpWithInsert(Archive *fout, TableInfo *tbinfo)
+bbfIsDumpWithInsert(Archive *fout, const TableInfo *tbinfo)
 {
 	return (isBabelfishDatabase(fout) &&
 			hasSqlvariantColumn(tbinfo));
@@ -1470,7 +1470,7 @@ bbfIsDumpWithInsert(Archive *fout, TableInfo *tbinfo)
  * Returns true if any of the columns in table is a sqlvariant data type column
  */
 static bool
-hasSqlvariantColumn(TableInfo *tbinfo)
+hasSqlvariantColumn(const TableInfo *tbinfo)
 {
 	for (int i = 0; i < tbinfo->numatts; i++)
 		if (strstr(tbinfo->atttypnames[i],
@@ -1506,7 +1506,7 @@ getMbstrlen(const char *mbstr, Archive *fout)
  */
 static int
 fixCursorForBbfSqlvariantTableData( Archive *fout,
-									TableInfo *tbinfo,
+									const TableInfo *tbinfo,
 									PQExpBuffer query,
 									int nfields,
 									int **sqlvar_metadata_pos)
@@ -1742,7 +1742,7 @@ castSqlvariantToBasetype(PGresult *res,
  */
 void
 fixCursorForBbfTableData(Archive *fout,
-						 TableInfo *tbinfo,
+						 const TableInfo *tbinfo,
 						 PQExpBuffer buf,
 						 int *nfields,
 						 int *nfields_new,
