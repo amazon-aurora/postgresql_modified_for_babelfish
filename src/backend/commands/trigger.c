@@ -184,7 +184,7 @@ check_pltsql_support_tsql_transactions_hook_type check_pltsql_support_tsql_trans
  * (but see CloneRowTriggersToPartition).
  */
 ObjectAddress
-CreateTrigger(CreateTrigStmt *stmt, const char *queryString,
+CreateTrigger(const CreateTrigStmt *stmt, const char *queryString,
 			  Oid relOid, Oid refRelOid, Oid constraintOid, Oid indexOid,
 			  Oid funcoid, Oid parentTriggerOid, Node *whenClause,
 			  bool isInternal, bool in_partition)
@@ -201,7 +201,7 @@ CreateTrigger(CreateTrigStmt *stmt, const char *queryString,
  * (always/origin/replica/disabled) can be specified.
  */
 ObjectAddress
-CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
+CreateTriggerFiringOn(const CreateTrigStmt *stmt, const char *queryString,
 					  Oid relOid, Oid refRelOid, Oid constraintOid,
 					  Oid indexOid, Oid funcoid, Oid parentTriggerOid,
 					  Node *whenClause, bool isInternal, bool in_partition,
