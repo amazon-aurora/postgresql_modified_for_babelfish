@@ -11503,10 +11503,17 @@ pub_except_obj_list: PublicationExceptObjSpec
  *
  * ALTER PUBLICATION name SET pub_obj [, ...]
  *
+ * ALTER PUBLICATION name SET pub_all_obj_type [, ...]
+ *
  * pub_obj is one of:
  *
  *		TABLE table_name [, ...]
  *		TABLES IN SCHEMA schema_name [, ...]
+ *
+ * pub_all_obj_type is one of:
+ *
+ *		ALL TABLES [ EXCEPT TABLE ( table_name [, ...] ) ]
+ *		ALL SEQUENCES
  *
  *****************************************************************************/
 
@@ -11517,6 +11524,7 @@ AlterPublicationStmt:
 
 					n->pubname = $3;
 					n->options = $5;
+					n->for_all_tables = false;
 					$$ = (Node *) n;
 				}
 			| ALTER PUBLICATION name ADD_P pub_obj_list
@@ -11527,6 +11535,7 @@ AlterPublicationStmt:
 					n->pubobjects = $5;
 					preprocess_pubobj_list(n->pubobjects, yyscanner);
 					n->action = AP_AddObjects;
+					n->for_all_tables = false;
 					$$ = (Node *) n;
 				}
 			| ALTER PUBLICATION name SET pub_obj_list
@@ -11537,6 +11546,19 @@ AlterPublicationStmt:
 					n->pubobjects = $5;
 					preprocess_pubobj_list(n->pubobjects, yyscanner);
 					n->action = AP_SetObjects;
+					n->for_all_tables = false;
+					$$ = (Node *) n;
+				}
+			| ALTER PUBLICATION name SET pub_all_obj_type_list
+				{
+					AlterPublicationStmt *n = makeNode(AlterPublicationStmt);
+
+					n->pubname = $3;
+					n->action = AP_SetObjects;
+					preprocess_pub_all_objtype_list($5, &n->pubobjects,
+													&n->for_all_tables,
+													&n->for_all_sequences,
+													yyscanner);
 					$$ = (Node *) n;
 				}
 			| ALTER PUBLICATION name DROP pub_obj_list
@@ -11547,6 +11569,7 @@ AlterPublicationStmt:
 					n->pubobjects = $5;
 					preprocess_pubobj_list(n->pubobjects, yyscanner);
 					n->action = AP_DropObjects;
+					n->for_all_tables = false;
 					$$ = (Node *) n;
 				}
 		;
