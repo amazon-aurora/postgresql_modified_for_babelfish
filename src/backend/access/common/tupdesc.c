@@ -247,10 +247,11 @@ CreateTupleDescCopy(TupleDesc tupdesc)
 
 	desc = CreateTemplateTupleDesc(tupdesc->natts);
 
-	/* Flat-copy the attribute array */
-	memcpy(TupleDescAttr(desc, 0),
-		   TupleDescAttr(tupdesc, 0),
-		   desc->natts * sizeof(FormData_pg_attribute));
+	/* Flat-copy the attribute array (unless there are no attributes) */
+	if (desc->natts > 0)
+		memcpy(TupleDescAttr(desc, 0),
+			   TupleDescAttr(tupdesc, 0),
+			   desc->natts * sizeof(FormData_pg_attribute));
 
 	/*
 	 * Since we're not copying constraints and defaults, clear fields
@@ -295,10 +296,11 @@ CreateTupleDescTruncatedCopy(TupleDesc tupdesc, int natts)
 
 	desc = CreateTemplateTupleDesc(natts);
 
-	/* Flat-copy the attribute array */
-	memcpy(TupleDescAttr(desc, 0),
-		   TupleDescAttr(tupdesc, 0),
-		   desc->natts * sizeof(FormData_pg_attribute));
+	/* Flat-copy the attribute array (unless there are no attributes) */
+	if (desc->natts > 0)
+		memcpy(TupleDescAttr(desc, 0),
+			   TupleDescAttr(tupdesc, 0),
+			   desc->natts * sizeof(FormData_pg_attribute));
 
 	/*
 	 * Since we're not copying constraints and defaults, clear fields
@@ -340,10 +342,11 @@ CreateTupleDescCopyConstr(TupleDesc tupdesc)
 
 	desc = CreateTemplateTupleDesc(tupdesc->natts);
 
-	/* Flat-copy the attribute array */
-	memcpy(TupleDescAttr(desc, 0),
-		   TupleDescAttr(tupdesc, 0),
-		   desc->natts * sizeof(FormData_pg_attribute));
+	/* Flat-copy the attribute array (unless there are no attributes) */
+	if (desc->natts > 0)
+		memcpy(TupleDescAttr(desc, 0),
+			   TupleDescAttr(tupdesc, 0),
+			   desc->natts * sizeof(FormData_pg_attribute));
 
 	for (i = 0; i < desc->natts; i++)
 	{
