@@ -1372,7 +1372,7 @@ HeapTupleSatisfiesNonVacuumable(HeapTuple htup, Snapshot snapshot,
 	{
 		Assert(TransactionIdIsValid(dead_after));
 
-		if (GlobalVisTestIsRemovableXid(snapshot->vistest, dead_after))
+		if (GlobalVisTestIsRemovableXid(snapshot->vistest, dead_after, true))
 			res = HEAPTUPLE_DEAD;
 	}
 	else
@@ -1438,7 +1438,8 @@ HeapTupleIsSurelyDead(HeapTuple htup, GlobalVisState *vistest)
 
 	/* Deleter committed, so tuple is dead if the XID is old enough. */
 	return GlobalVisTestIsRemovableXid(vistest,
-									   HeapTupleHeaderGetRawXmax(tuple));
+									   HeapTupleHeaderGetRawXmax(tuple),
+									   true);
 }
 
 /*
