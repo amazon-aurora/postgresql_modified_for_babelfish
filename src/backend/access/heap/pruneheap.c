@@ -162,10 +162,11 @@ static void prune_freeze_setup(PruneFreezeParams *params,
 							   MultiXactId new_relmin_mxid,
 							   const PruneFreezeResult *presult,
 							   PruneState *prstate);
-static void prune_freeze_plan(Oid reloid, Buffer buffer,
+static void prune_freeze_plan(Relation relation, Buffer buffer,
 							  PruneState *prstate,
 							  OffsetNumber *off_loc);
-static HTSV_Result heap_prune_satisfies_vacuum(PruneState *prstate,
+static HTSV_Result heap_prune_satisfies_vacuum(Relation relation,
+											   PruneState *prstate,
 											   HeapTuple tup,
 											   Buffer buffer);
 static inline HTSV_Result htsv_get_valid_status(int status);
@@ -445,7 +446,7 @@ prune_freeze_setup(PruneFreezeParams *params,
  * *off_loc is used for error callback and cleared before returning.
  */
 static void
-prune_freeze_plan(Oid reloid, Buffer buffer, PruneState *prstate,
+prune_freeze_plan(Relation relation, Buffer buffer, PruneState *prstate,
 				  OffsetNumber *off_loc)
 {
 	Page		page = BufferGetPage(buffer);
@@ -454,7 +455,7 @@ prune_freeze_plan(Oid reloid, Buffer buffer, PruneState *prstate,
 	OffsetNumber offnum;
 	HeapTupleData tup;
 
-	tup.t_tableOid = reloid;
+	tup.t_tableOid = RelationGetRelid(relation);
 
 	/*
 	 * Determine HTSV for all tuples, and queue them up for processing as HOT
@@ -529,7 +530,7 @@ prune_freeze_plan(Oid reloid, Buffer buffer, PruneState *prstate,
 		tup.t_len = ItemIdGetLength(itemid);
 		ItemPointerSet(&tup.t_self, blockno, offnum);
 
-		prstate->htsv[offnum] = heap_prune_satisfies_vacuum(prstate, &tup,
+		prstate->htsv[offnum] = heap_prune_satisfies_vacuum(relation, prstate, &tup,
 															buffer);
 
 		if (!HeapTupleHeaderIsHeapOnly(htup))
@@ -836,7 +837,7 @@ heap_page_prune_and_freeze(PruneFreezeParams *params,
 	 * Prepare queue of state changes to later be executed in a critical
 	 * section.
 	 */
-	prune_freeze_plan(RelationGetRelid(params->relation),
+	prune_freeze_plan(params->relation,
 					  buffer, &prstate, off_loc);
 
 	/*
