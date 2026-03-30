@@ -9952,7 +9952,7 @@ ATExecAddIndexConstraint(AlteredTableInfo *tab, Relation rel,
 	char	   *constraintName;
 	char		constraintType;
 	ObjectAddress address;
-	bits16		flags;
+	uint16		flags;
 	const char	*bbf_dump_restore = GetConfigOption("babelfishpg_tsql.dump_restore", true, false);
 
 	Assert(IsA(stmt, IndexStmt));

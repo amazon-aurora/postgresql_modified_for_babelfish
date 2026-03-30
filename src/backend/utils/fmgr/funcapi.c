@@ -76,7 +76,7 @@ modify_RangeTblFunction_tupdesc_hook_type modify_RangeTblFunction_tupdesc_hook =
  * RECORD datatype.
  */
 void
-InitMaterializedSRF(FunctionCallInfo fcinfo, bits32 flags)
+InitMaterializedSRF(FunctionCallInfo fcinfo, uint32 flags)
 {
 	bool		random_access;
 	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;

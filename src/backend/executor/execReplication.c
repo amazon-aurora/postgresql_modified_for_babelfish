@@ -852,7 +852,7 @@ ExecSimpleRelationInsert(ResultRelInfo *resultRelInfo,
 
 		if (resultRelInfo->ri_NumIndices > 0)
 		{
-			bits32		flags;
+			uint32		flags;
 
 			if (conflictindexes != NIL)
 				flags = EIIT_NO_DUPE_ERROR;
@@ -956,7 +956,7 @@ ExecSimpleRelationUpdate(ResultRelInfo *resultRelInfo,
 
 		if (resultRelInfo->ri_NumIndices > 0 && (update_indexes != TU_None))
 		{
-			bits32		flags = EIIT_IS_UPDATE;
+			uint32		flags = EIIT_IS_UPDATE;
 
 			if (conflictindexes != NIL)
 				flags |= EIIT_NO_DUPE_ERROR;
