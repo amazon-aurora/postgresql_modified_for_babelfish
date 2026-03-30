@@ -6543,7 +6543,8 @@ ATRewriteTable(AlteredTableInfo *tab, Oid OIDNewHeap)
 		 * checking all the constraints.
 		 */
 		snapshot = RegisterSnapshot(GetLatestSnapshot());
-		scan = table_beginscan(oldrel, snapshot, 0, NULL);
+		scan = table_beginscan(oldrel, snapshot, 0, NULL,
+							   SO_NONE);
 
 		/*
 		 * Switch to per-tuple memory context and reset it for each tuple
@@ -14149,8 +14150,8 @@ validateForeignKeyConstraint(char *conname,
 	 */
 	snapshot = RegisterSnapshot(GetLatestSnapshot());
 	slot = table_slot_create(rel, NULL);
-	scan = table_beginscan(rel, snapshot, 0, NULL);
-
+	scan = table_beginscan(rel, snapshot, 0, NULL,
+						   SO_NONE);
 	perTupCxt = AllocSetContextCreate(CurrentMemoryContext,
 									  "validateForeignKeyConstraint",
 									  ALLOCSET_SMALL_SIZES);
@@ -23086,7 +23087,8 @@ MergePartitionsMoveRows(List **wqueue, List *mergingPartitions, Relation newPart
 
 		/* Scan through the rows. */
 		snapshot = RegisterSnapshot(GetLatestSnapshot());
-		scan = table_beginscan(mergingPartition, snapshot, 0, NULL);
+		scan = table_beginscan(mergingPartition, snapshot, 0, NULL,
+							   SO_NONE);
 
 		/*
 		 * Switch to per-tuple memory context and reset it for each tuple
@@ -23550,7 +23552,8 @@ SplitPartitionMoveRows(List **wqueue, Relation rel, Relation splitRel,
 
 	/* Scan through the rows. */
 	snapshot = RegisterSnapshot(GetLatestSnapshot());
-	scan = table_beginscan(splitRel, snapshot, 0, NULL);
+	scan = table_beginscan(splitRel, snapshot, 0, NULL,
+						   SO_NONE);
 
 	/*
 	 * Switch to per-tuple memory context and reset it for each tuple
