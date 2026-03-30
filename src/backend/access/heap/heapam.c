@@ -59,7 +59,7 @@
 
 
 static HeapTuple heap_prepare_insert(Relation relation, HeapTuple tup,
-									 TransactionId xid, CommandId cid, bits32 options);
+									 TransactionId xid, CommandId cid, uint32 options);
 static XLogRecPtr log_heap_update(Relation reln, Buffer oldbuf,
 								  Buffer newbuf, HeapTuple oldtup,
 								  HeapTuple newtup, HeapTuple old_key_tuple,
@@ -2157,7 +2157,7 @@ ReleaseBulkInsertStatePin(BulkInsertState bistate)
  */
 void
 heap_insert(Relation relation, HeapTuple tup, CommandId cid,
-			bits32 options, BulkInsertState bistate)
+			uint32 options, BulkInsertState bistate)
 {
 	TransactionId xid = GetCurrentTransactionId();
 	HeapTuple	heaptup;
@@ -2348,7 +2348,7 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
  */
 static HeapTuple
 heap_prepare_insert(Relation relation, HeapTuple tup, TransactionId xid,
-					CommandId cid, bits32 options)
+					CommandId cid, uint32 options)
 {
 	/*
 	 * To allow parallel inserts, we need to ensure that they are safe to be
@@ -2428,7 +2428,7 @@ heap_multi_insert_pages(HeapTuple *heaptuples, int done, int ntuples, Size saveF
  */
 void
 heap_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
-				  CommandId cid, bits32 options, BulkInsertState bistate)
+				  CommandId cid, uint32 options, BulkInsertState bistate)
 {
 	TransactionId xid = GetCurrentTransactionId();
 	HeapTuple  *heaptuples;
