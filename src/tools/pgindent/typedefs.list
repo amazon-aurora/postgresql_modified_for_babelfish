@@ -818,6 +818,7 @@ ExtensionInfo
 ExtensionLocation
 ExtensionSiblingCache
 ExtensionVersionInfo
+FastPathMeta
 FDWCollateState
 FD_SET
 FILE
