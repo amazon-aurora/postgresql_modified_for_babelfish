@@ -1116,6 +1116,13 @@ like_fixed_prefix_ci(Const *patt_const, Oid collation, Const **prefix_const,
 	wmatch = palloc((nbytes + 1) * sizeof(pg_wchar));
 	for (wpos = 0; wpos < wpattlen; wpos++)
 	{
+		/* [ and ] are special characters in LIKE for TSQL */
+		if ((wpatt[wpos] == '[' ||
+			wpatt[wpos] == ']') && sql_dialect == SQL_DIALECT_TSQL)
+		{
+			break;
+		}
+
 		/* % and _ are wildcard characters in LIKE */
 		if (wpatt[wpos] == '%' ||
 			wpatt[wpos] == '_')
