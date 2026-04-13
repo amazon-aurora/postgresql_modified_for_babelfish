@@ -753,7 +753,7 @@ outNode(StringInfo str, const void *obj)
 	else if (IsA(obj, BitString))
 		_outBitString(str, (const BitString *) obj);
 	else if (IsA(obj, TSQL_HexString))
-		_outTSQL_HexString(str, (TSQL_HexString *) obj);
+		_outTSQL_HexString(str, (const TSQL_HexString *) obj);
 	else if (IsA(obj, Bitmapset))
 		outBitmapset(str, (const Bitmapset *) obj);
 	else
