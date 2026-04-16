@@ -572,7 +572,7 @@ do_like_escape(text *pat, text *esc)
 			afterescape = false;
 			while (plen > 0)
 			{
-				if (CHAREQ(p, e) && !afterescape)
+				if (CHAREQ(p, plen, e, elen) && !afterescape)
 				{
 					/* check if direct copy string (unicode char) is valid */
 					
