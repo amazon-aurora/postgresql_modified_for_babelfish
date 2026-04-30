@@ -650,7 +650,7 @@ tsql_openjson_with_get_subjsonb(PG_FUNCTION_ARGS)
 						   countVariablesFromJsonb,
 						   jb, false, &found, false);
 
-	if (JsonValueListLength(&found) >= 1) {
+	if (!JsonValueListIsEmpty(&found)) {
 		JsonbValue *jv = JsonValueListHead(&found);
 		/*
 		 * List may contain NULL values
@@ -778,21 +778,25 @@ tsql_openjson_with_columnize(Jsonb *jb, char *col_info)
 						   countVariablesFromJsonb,
 						   jb, false, &found, false);
 
-	list = JsonValueListGetList(&found);
+	list = NIL;
 	/* go through found and convert values to strings. Truncate as necessary based on col_size */
-	if (list != NIL)
+	if (!JsonValueListIsEmpty(&found))
 	{
-		ListCell	*lc;
-		foreach(lc, list)
+		JsonValueListIterator it;
+		JsonbValue	*v;
+		JsonValueListInitIterator(&found, &it);
+		while ((v = JsonValueListNext(&it)) != NULL)
 		{
-			JsonbValue	*v = lc->ptr_value;
 			Jsonb		*jsonb;
 			char 		*json_str;
 			int			len = 0,
 						numchars = 0;
 
 			if (v == NULL)
+			{
+				list = lappend(list, NULL);
 				continue;
+			}
 			jsonb = JsonbValueToJsonb(v);
 			if (v->type == jbvNull) /* SQL Server treats json nulls as SQL NULLs */
 				jsonb = NULL;
@@ -817,15 +821,15 @@ tsql_openjson_with_columnize(Jsonb *jb, char *col_info)
 				}
 				len++;
 			}
-			/* fill in lc with either the string value or NULL */
+			/* append either the string value or NULL to the result list */
 			if (jsonb == NULL)
-				lc->ptr_value = NULL;
+				list = lappend(list, NULL);
 			else
 			{
-				lc->ptr_value = palloc0(len);
-				snprintf(lc->ptr_value, len, "%s", json_str);
+				char *str = palloc0(len);
+				snprintf(str, len, "%s", json_str);
+				list = lappend(list, str);
 			}
-			pfree(v);
 		}
 	}
 
@@ -1309,19 +1313,11 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 									pnstrdup(key.val.string.val,
 											 key.val.string.len))));
 				}
-				else if (found && sql_dialect == SQL_DIALECT_TSQL) /* in TSQL JSON functions, missing values are filled with NULL so we need to keep searching */
+				else if (found && sql_dialect == SQL_DIALECT_TSQL)
 				{
-					if (found->singleton)
-					{
-						found->list = list_make2(found->singleton, NULL);
-						found->singleton = NULL;
-					}
-					else if (found->list)
-						found->list = lappend(found->list, NULL);
-					else {
-						/* Since JsonValueList uses a NULL singleton as shortcut, need to manually insert null value into list */
-						found->list = list_make1(NULL);
-					}
+					JsonbValue	null_jbv;
+					null_jbv.type = jbvNull;
+					JsonValueListAppend(found, &null_jbv);
 					res = jperOk;
 				}
 			}
