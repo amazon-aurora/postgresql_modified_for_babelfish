@@ -629,8 +629,10 @@ tsql_openjson_with_get_subjsonb(PG_FUNCTION_ARGS)
 					*vars;
 	JsonPath		*jp;
 	JsonPathItem    jsp;
-	JsonValueList 	found = {0};
+	JsonValueList 	found;
 	bool 			islax;
+
+	JsonValueListInit(&found);
 
 	json_text = PG_GETARG_TEXT_PP(0);
 	jb = (Jsonb *) DirectFunctionCall1(jsonb_in, CStringGetDatum(text_to_cstring(json_text)));
@@ -687,7 +689,7 @@ tsql_openjson_with_columnize(Jsonb *jb, char *col_info)
 	List 			*list;
 	Jsonb			*vars = (Jsonb *) DirectFunctionCall1(jsonb_in, CStringGetDatum("{}"));
 	JsonPath		*jp;
-	JsonValueList 	found = {0};
+	JsonValueList 	found;
 	int				col_size = INT_MAX; /* keep track of the column's size if declared */
 
 	/* extract column info */
@@ -697,6 +699,9 @@ tsql_openjson_with_columnize(Jsonb *jb, char *col_info)
 	bool	strict,
 			as,
 			asjson;
+
+	JsonValueListInit(&found);
+
 	col_path = NULL; col_type = NULL; strict = false; as = false; asjson = false;
 	token = strtok(col_info, " ");
 
