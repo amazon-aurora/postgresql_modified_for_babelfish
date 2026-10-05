@@ -1630,23 +1630,34 @@ HeapTupleSatisfiesHistoricMVCC(HeapTuple htup, Snapshot snapshot,
  * it will also allow more efficient setting of hint bits.
  *
  * Returns the number of visible tuples.
+ *
+ * Babelfish T-SQL table variables use custom visibility rules implemented
+ * via a hook (the same one HeapTupleSatisfiesVisibility() dispatches to).
+ * For such relations, the hook is called for each tuple instead of
+ * HeapTupleSatisfiesMVCC().
  */
 int
-HeapTupleSatisfiesMVCCBatch(Snapshot snapshot, Buffer buffer,
-							int ntups,
+HeapTupleSatisfiesMVCCBatch(Relation relation, Snapshot snapshot,
+							Buffer buffer, int ntups,
 							BatchMVCCState *batchmvcc,
 							OffsetNumber *vistuples_dense)
 {
 	int			nvis = 0;
+	bool		is_table_variable;
 
 	Assert(IsMVCCSnapshot(snapshot));
+
+	is_table_variable = (table_variable_satisfies_visibility_hook && IsTsqlTableVariable(relation));
 
 	for (int i = 0; i < ntups; i++)
 	{
 		bool		valid;
 		HeapTuple	tup = &batchmvcc->tuples[i];
 
-		valid = HeapTupleSatisfiesMVCC(tup, snapshot, buffer);
+		if (is_table_variable)
+			valid = table_variable_satisfies_visibility_hook(tup, snapshot, buffer);
+		else
+			valid = HeapTupleSatisfiesMVCC(tup, snapshot, buffer);
 		batchmvcc->visible[i] = valid;
 
 		if (likely(valid))

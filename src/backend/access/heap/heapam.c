@@ -583,7 +583,8 @@ page_collect_tuples(HeapScanDesc scan, Snapshot snapshot,
 	if (all_visible)
 		nvis = ntup;
 	else
-		nvis = HeapTupleSatisfiesMVCCBatch(snapshot, buffer,
+		nvis = HeapTupleSatisfiesMVCCBatch(scan->rs_base.rs_rd,
+										   snapshot, buffer,
 										   ntup,
 										   &batchmvcc,
 										   scan->rs_vistuples);

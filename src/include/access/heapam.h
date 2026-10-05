@@ -477,8 +477,8 @@ typedef struct BatchMVCCState
 	bool		visible[MaxHeapTuplesPerPage];
 } BatchMVCCState;
 
-extern int	HeapTupleSatisfiesMVCCBatch(Snapshot snapshot, Buffer buffer,
-										int ntups,
+extern int	HeapTupleSatisfiesMVCCBatch(Relation relation, Snapshot snapshot,
+										Buffer buffer, int ntups,
 										BatchMVCCState *batchmvcc,
 										OffsetNumber *vistuples_dense);
 
