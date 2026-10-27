@@ -1307,7 +1307,16 @@ chooseScalarFunctionAlias(Node *funcexpr, char *funcname,
 	{
 		pname = get_func_result_name(((FuncExpr *) funcexpr)->funcid);
 		if (pname)
+		{
+			/*
+			 * TupleDescInitEntry below clips this to a plain NAMEDATALEN-1
+			 * prefix, so apply the scanner's MD5-truncation here to keep
+			 * name-based lookups consistent.
+			 */
+			if (sql_dialect == SQL_DIALECT_TSQL && strlen(pname) >= NAMEDATALEN)
+				truncate_identifier(pname, strlen(pname), false);
 			return pname;
+		}
 	}
 
 	/*
