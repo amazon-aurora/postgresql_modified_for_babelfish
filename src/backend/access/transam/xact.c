@@ -6531,13 +6531,13 @@ IsTopTransactionName(const char *name)
 	if (name == NULL)
 		return true;
 
-	for (target = s; PointerIsValid(target); target = target->parent)
+	for (target = s; target; target = target->parent)
 	{
-		if (PointerIsValid(target->name) && strcmp(target->name, name) == 0)
+		if (target->name && strcmp(target->name, name) == 0)
 			break;
 	}
 
-	if (PointerIsValid(target) && target->nestingLevel == 1)
+	if (target && target->nestingLevel == 1)
 		return true;
 
 	return false;
@@ -6594,9 +6594,9 @@ RollbackAndReleaseSavepoint(const char *name)
 	if (name == NULL)
 		elog(FATAL, "RollbackAndReleaseSavepoint: NULL savepoint name");
 
-	for (target = s; PointerIsValid(target); target = target->parent)
+	for (target = s; target; target = target->parent)
 	{
-		if (PointerIsValid(target->name) && strcmp(target->name, name) == 0)
+		if (target->name && strcmp(target->name, name) == 0)
 			break;
 		if (target->blockState != TBLOCK_SUBABORT_PENDING &&
 			target->blockState != TBLOCK_SUBABORT_END)
@@ -6604,7 +6604,7 @@ RollbackAndReleaseSavepoint(const char *name)
 				 BlockStateAsString(target->blockState));
 	}
 
-	if (!PointerIsValid(target))
+	if (!target)
 		elog(FATAL, "RollbackAndReleaseSavepoint: savepoint %s not found",
 			 name);
 

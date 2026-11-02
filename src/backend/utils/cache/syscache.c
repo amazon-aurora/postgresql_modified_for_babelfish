@@ -182,7 +182,7 @@ InitExtensionCatalogCache(struct cachedesc *ext_cacheinfo, int startid, int ext_
 										 ext_cacheinfo[i].nkeys,
 										 ext_cacheinfo[i].key,
 										 ext_cacheinfo[i].nbuckets);
-		if (!PointerIsValid(SysCache[cacheId]))
+		if (!SysCache[cacheId])
 			elog(ERROR, "could not initialize extension cache %u (%d)",
 				 ext_cacheinfo[i].reloid, cacheId);
 		/* see comments for RelationInvalidatesSnapshotsOnly */
