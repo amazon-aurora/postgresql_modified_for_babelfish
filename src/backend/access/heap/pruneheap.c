@@ -650,7 +650,7 @@ heap_page_prune_and_freeze(PruneFreezeParams *params,
 		tup.t_len = ItemIdGetLength(itemid);
 		ItemPointerSet(&tup.t_self, blockno, offnum);
 
-		prstate.htsv[offnum] = heap_prune_satisfies_vacuum(relation, &prstate, &tup,
+		prstate.htsv[offnum] = heap_prune_satisfies_vacuum(params->relation, &prstate, &tup,
 															buffer);
 
 		if (!HeapTupleHeaderIsHeapOnly(htup))
