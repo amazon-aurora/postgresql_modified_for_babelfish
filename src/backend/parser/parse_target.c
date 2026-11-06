@@ -36,9 +36,6 @@ post_transform_target_entry_hook_type post_transform_target_entry_hook = NULL;
 resolve_target_list_unknowns_hook_type resolve_target_list_unknowns_hook = NULL;
 handle_type_and_collation_hook_type handle_type_and_collation_hook = NULL;
 
-/* These parameters are set by GUC */
-bool ansi_qualified_update_set_target;
-
 static void markTargetListOrigin(ParseState *pstate, TargetEntry *tle,
 								 Var *var, int levelsup);
 static Node *transformAssignmentSubscripts(ParseState *pstate,
