@@ -3357,13 +3357,22 @@ match_previous_words(int pattern_id,
 	/* Complete COPY|\copy <sth> FROM|TO with filename or STDIN/STDOUT/PROGRAM */
 	else if (Matches("COPY|\\copy", MatchAny, "FROM|TO"))
 	{
-		/* COPY requires quoted filename */
-		bool		force_quote = HeadMatches("COPY");
-
-		if (TailMatches("FROM"))
-			COMPLETE_WITH_FILES_PLUS("", force_quote, "STDIN", "PROGRAM");
+		if (HeadMatches("COPY"))
+		{
+			/* COPY requires quoted filename */
+			if (TailMatches("FROM"))
+				COMPLETE_WITH_FILES_PLUS("", true, "STDIN", "PROGRAM");
+			else
+				COMPLETE_WITH_FILES_PLUS("", true, "STDOUT", "PROGRAM");
+		}
 		else
-			COMPLETE_WITH_FILES_PLUS("", force_quote, "STDOUT", "PROGRAM");
+		{
+			/* \copy supports pstdin and pstdout */
+			if (TailMatches("FROM"))
+				COMPLETE_WITH_FILES_PLUS("", false, "STDIN", "PSTDIN", "PROGRAM");
+			else
+				COMPLETE_WITH_FILES_PLUS("", false, "STDOUT", "PSTDOUT", "PROGRAM");
+		}
 	}
 
 	/* Complete COPY|\copy <sth> FROM|TO PROGRAM */
@@ -5355,8 +5364,11 @@ match_previous_words(int pattern_id,
 /*
  * WAIT FOR LSN '<lsn>' [ WITH ( option [, ...] ) ]
  * where option can be:
+ *   MODE '<mode>'
  *   TIMEOUT '<timeout>'
  *   NO_THROW
+ * and mode can be:
+ *   standby_replay | standby_write | standby_flush | primary_flush
  */
 	else if (Matches("WAIT"))
 		COMPLETE_WITH("FOR");
@@ -5369,21 +5381,24 @@ match_previous_words(int pattern_id,
 		COMPLETE_WITH("WITH");
 	else if (Matches("WAIT", "FOR", "LSN", MatchAny, "WITH"))
 		COMPLETE_WITH("(");
+
+	/*
+	 * Handle parenthesized option list.  This fires when we're in an
+	 * unfinished parenthesized option list.  get_previous_words treats a
+	 * completed parenthesized option list as one word, so the above test is
+	 * correct.
+	 *
+	 * 'mode' takes a string value (one of the listed above), 'timeout' takes
+	 * a string value, and 'no_throw' takes no value.  We do not offer
+	 * completions for the *values* of 'timeout' or 'no_throw'.
+	 */
 	else if (HeadMatches("WAIT", "FOR", "LSN", MatchAny, "WITH", "(*") &&
 			 !HeadMatches("WAIT", "FOR", "LSN", MatchAny, "WITH", "(*)"))
 	{
-		/*
-		 * This fires if we're in an unfinished parenthesized option list.
-		 * get_previous_words treats a completed parenthesized option list as
-		 * one word, so the above test is correct.
-		 */
 		if (ends_with(prev_wd, '(') || ends_with(prev_wd, ','))
-			COMPLETE_WITH("timeout", "no_throw");
-
-		/*
-		 * timeout takes a string value, no_throw takes no value. We don't
-		 * offer completions for these values.
-		 */
+			COMPLETE_WITH("mode", "timeout", "no_throw");
+		else if (TailMatches("mode"))
+			COMPLETE_WITH("'standby_replay'", "'standby_write'", "'standby_flush'", "'primary_flush'");
 	}
 
 /* WITH [RECURSIVE] */

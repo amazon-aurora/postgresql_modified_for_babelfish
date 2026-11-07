@@ -20,7 +20,6 @@
 #include "postgres.h"
 
 #include <ctype.h>
-#include <math.h>
 
 #include "catalog/namespace.h"
 #include "commands/defrem.h"
@@ -349,7 +348,7 @@ defGetStringList(DefElem *def)
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("%s requires a parameter",
 						def->defname)));
-	if (nodeTag(def->arg) != T_List)
+	if (!IsA(def->arg, List))
 		elog(ERROR, "unrecognized node type: %d", (int) nodeTag(def->arg));
 
 	foreach(cell, (List *) def->arg)

@@ -86,6 +86,7 @@ pgxs_kv = {
 
   'CC': var_cc,
   'CPP': var_cpp,
+  'CXX': var_cxx,
   'GCC': cc.get_argument_syntax() == 'gcc' ? 'yes' : 'no',
 
   'CPPFLAGS': var_cppflags,
@@ -117,18 +118,18 @@ pgxs_kv = {
   'FLEXFLAGS': ' '.join(flex_flags),
 
   'LIBS': var_libs,
+
+  'have_cxx': have_cxx ? 'yes' : 'no',
 }
 
 if llvm.found()
   pgxs_kv += {
     'CLANG': clang.full_path(),
-    'CXX': ' '.join(cpp.cmd_array()),
     'LLVM_BINPATH': llvm_binpath,
   }
 else
   pgxs_kv += {
     'CLANG': '',
-    'CXX': '',
     'LLVM_BINPATH': '',
   }
 endif

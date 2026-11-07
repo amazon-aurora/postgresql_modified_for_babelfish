@@ -138,6 +138,7 @@ typedef struct
 	int64		cache;			/* cache size */
 	int64		last_value;		/* last value of sequence */
 	bool		is_called;		/* whether nextval advances before returning */
+	bool		null_seqtuple;	/* did pg_get_sequence_data return nulls? */
 } SequenceItem;
 
 typedef enum OidOptions
@@ -2396,8 +2397,8 @@ selectDumpableObject(DumpableObject *dobj, Archive *fout)
 static int
 dumpTableData_copy(Archive *fout, const void *dcontext)
 {
-	TableDataInfo *tdinfo = (TableDataInfo *) dcontext;
-	TableInfo  *tbinfo = tdinfo->tdtable;
+	const TableDataInfo *tdinfo = dcontext;
+	const TableInfo *tbinfo = tdinfo->tdtable;
 	const char *classname = tbinfo->dobj.name;
 	PQExpBuffer q = createPQExpBuffer();
 
@@ -2565,8 +2566,8 @@ dumpTableData_copy(Archive *fout, const void *dcontext)
 static int
 dumpTableData_insert(Archive *fout, const void *dcontext)
 {
-	TableDataInfo *tdinfo = (TableDataInfo *) dcontext;
-	TableInfo  *tbinfo = tdinfo->tdtable;
+	const TableDataInfo *tdinfo = dcontext;
+	const TableInfo *tbinfo = tdinfo->tdtable;
 	DumpOptions *dopt = fout->dopt;
 	PQExpBuffer q = createPQExpBuffer();
 	PQExpBuffer insertStmt = NULL;
@@ -2669,7 +2670,7 @@ dumpTableData_insert(Archive *fout, const void *dcontext)
 		 */
 		if (insertStmt == NULL)
 		{
-			TableInfo  *targettab;
+			const TableInfo *targettab;
 
 			insertStmt = createPQExpBuffer();
 
@@ -2929,7 +2930,7 @@ static void
 dumpTableData(Archive *fout, const TableDataInfo *tdinfo)
 {
 	DumpOptions *dopt = fout->dopt;
-	TableInfo  *tbinfo = tdinfo->tdtable;
+	const TableInfo *tbinfo = tdinfo->tdtable;
 	PQExpBuffer copyBuf = createPQExpBuffer();
 	PQExpBuffer clistBuf = createPQExpBuffer();
 	DataDumperPtr dumpFn;
@@ -2950,7 +2951,7 @@ dumpTableData(Archive *fout, const TableDataInfo *tdinfo)
 		(dopt->load_via_partition_root ||
 		 forcePartitionRootLoad(tbinfo)))
 	{
-		TableInfo  *parentTbinfo;
+		const TableInfo *parentTbinfo;
 		char	   *sanitized;
 
 		parentTbinfo = getRootTableInfo(tbinfo);
@@ -11186,7 +11187,7 @@ fetchAttributeStats(Archive *fout)
 static char *
 dumpRelationStats_dumper(Archive *fout, const void *userArg, const TocEntry *te)
 {
-	const RelStatsInfo *rsinfo = (RelStatsInfo *) userArg;
+	const RelStatsInfo *rsinfo = userArg;
 	static PGresult *res;
 	static int	rownum;
 	PQExpBuffer query;
@@ -19086,6 +19087,7 @@ collectSequences(Archive *fout)
 		sequences[i].cycled = (strcmp(PQgetvalue(res, i, 7), "t") == 0);
 		sequences[i].last_value = strtoi64(PQgetvalue(res, i, 8), NULL, 10);
 		sequences[i].is_called = (strcmp(PQgetvalue(res, i, 9), "t") == 0);
+		sequences[i].null_seqtuple = (PQgetisnull(res, i, 8) || PQgetisnull(res, i, 9));
 	}
 
 	PQclear(res);
@@ -19355,7 +19357,13 @@ dumpSequenceData(Archive *fout, const TableDataInfo *tdinfo)
 	TableInfo  *tbinfo = tdinfo->tdtable;
 	int64		last;
 	bool		called;
-	PQExpBuffer query = createPQExpBuffer();
+	PQExpBuffer query;
+
+	/* needn't bother if not dumping sequence data */
+	if (!fout->dopt->dumpData && !fout->dopt->sequence_data)
+		return;
+
+	query = createPQExpBuffer();
 
 	/*
 	 * For versions >= 18, the sequence information is gathered in the sorted
@@ -19397,6 +19405,12 @@ dumpSequenceData(Archive *fout, const TableDataInfo *tdinfo)
 		key.oid = tbinfo->dobj.catId.oid;
 		entry = bsearch(&key, sequences, nsequences,
 						sizeof(SequenceItem), SequenceItemCmp);
+
+		if (entry->null_seqtuple)
+			pg_fatal("failed to get data for sequence \"%s\"; user may lack "
+					 "SELECT privilege on the sequence or the sequence may "
+					 "have been concurrently dropped",
+					 tbinfo->dobj.name);
 
 		last = entry->last_value;
 		called = entry->is_called;

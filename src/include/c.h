@@ -109,12 +109,6 @@
 #endif
 
 /*
- * Previously used PostgreSQL-specific spelling, for backward compatibility
- * for extensions.
- */
-#define pg_restrict restrict
-
-/*
  * Attribute macros
  *
  * GCC: https://gcc.gnu.org/onlinedocs/gcc/Function-Attributes.html
@@ -160,7 +154,7 @@
  * common style is to put them before the return type.  (The MSVC fallback has
  * the same requirement.  The GCC fallback is more flexible.)
  */
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+#if (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L) && !defined(__cplusplus)
 #define pg_noreturn _Noreturn
 #elif defined(__GNUC__)
 #define pg_noreturn __attribute__((noreturn))
@@ -569,6 +563,7 @@ typedef uint32 bits32;			/* >= 32 bits */
 /* snprintf format strings to use for 64-bit integers */
 #define INT64_FORMAT "%" PRId64
 #define UINT64_FORMAT "%" PRIu64
+#define OID8_FORMAT "%" PRIu64
 
 /*
  * 128-bit signed and unsigned integers
@@ -655,7 +650,7 @@ typedef double float8;
 #define FLOAT8PASSBYVAL true
 
 /*
- * Oid, RegProcedure, TransactionId, SubTransactionId, MultiXactId,
+ * Oid, Oid8, RegProcedure, TransactionId, SubTransactionId, MultiXactId,
  * CommandId
  */
 
@@ -687,6 +682,11 @@ typedef uint32 CommandId;
 #define FirstCommandId	((CommandId) 0)
 #define InvalidCommandId	(~(CommandId)0)
 
+/* 8-byte Object ID */
+typedef uint64 Oid8;
+
+#define InvalidOid8		((Oid8) 0)
+#define OID8_MAX	UINT64_MAX
 
 /* ----------------
  *		Variable-length datatypes all share the 'struct varlena' header.
@@ -786,6 +786,8 @@ typedef NameData *Name;
 		((void *)((char *) base + offset))
 
 #define OidIsValid(objectId)  ((bool) ((objectId) != InvalidOid))
+
+#define Oid8IsValid(objectId)  ((bool) ((objectId) != InvalidOid8))
 
 #define RegProcedureIsValid(p)	OidIsValid(p)
 

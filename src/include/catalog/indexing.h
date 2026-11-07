@@ -17,6 +17,7 @@
 
 #include "access/htup.h"
 #include "nodes/execnodes.h"
+#include "executor/tuptable.h"
 #include "utils/relcache.h"
 
 /*

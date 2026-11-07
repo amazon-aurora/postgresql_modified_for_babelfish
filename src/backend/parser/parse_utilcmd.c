@@ -3595,7 +3595,7 @@ checkPartition(Relation rel, Oid partRelOid, bool isMerge)
 
 	if (get_partition_parent(partRelOid, false) != RelationGetRelid(rel))
 		ereport(ERROR,
-				errcode(ERRCODE_UNDEFINED_TABLE),
+				errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 				errmsg("relation \"%s\" is not a partition of relation \"%s\"",
 					   RelationGetRelationName(partRel), RelationGetRelationName(rel)),
 				isMerge
@@ -4803,11 +4803,13 @@ transformPartitionRangeBounds(ParseState *pstate, List *blist,
 	int			i,
 				j;
 
-	i = j = 0;
+	j = 0;
 	foreach(lc, blist)
 	{
 		Node	   *expr = lfirst(lc);
 		PartitionRangeDatum *prd = NULL;
+
+		i = foreach_current_index(lc);
 
 		/*
 		 * Infinite range bounds -- "minvalue" and "maxvalue" -- get passed in
@@ -4886,7 +4888,6 @@ transformPartitionRangeBounds(ParseState *pstate, List *blist,
 			prd = makeNode(PartitionRangeDatum);
 			prd->kind = PARTITION_RANGE_DATUM_VALUE;
 			prd->value = (Node *) value;
-			++i;
 		}
 
 		prd->location = exprLocation(expr);

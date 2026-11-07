@@ -14,8 +14,6 @@
  */
 #include "postgres.h"
 
-#include <math.h>
-
 #include "access/htup_details.h"
 #include "catalog/pg_statistic_ext.h"
 #include "catalog/pg_statistic_ext_data.h"
@@ -402,8 +400,8 @@ count_distinct_groups(int numrows, SortItem *items, MultiSortSupport mss)
 static int
 compare_sort_item_count(const void *a, const void *b, void *arg)
 {
-	SortItem   *ia = (SortItem *) a;
-	SortItem   *ib = (SortItem *) b;
+	const SortItem *ia = a;
+	const SortItem *ib = b;
 
 	if (ia->count == ib->count)
 		return 0;
@@ -465,8 +463,8 @@ static int
 sort_item_compare(const void *a, const void *b, void *arg)
 {
 	SortSupport ssup = (SortSupport) arg;
-	SortItem   *ia = (SortItem *) a;
-	SortItem   *ib = (SortItem *) b;
+	const SortItem *ia = a;
+	const SortItem *ib = b;
 
 	return ApplySortComparator(ia->values[0], ia->isnull[0],
 							   ib->values[0], ib->isnull[0],
@@ -2172,4 +2170,20 @@ mcv_clause_selectivity_or(PlannerInfo *root, StatisticExtInfo *stat,
 	pfree(new_matches);
 
 	return s;
+}
+
+/*
+ * Free allocations of a MCVList.
+ */
+void
+statext_mcv_free(MCVList *mcvlist)
+{
+	for (int i = 0; i < mcvlist->nitems; i++)
+	{
+		MCVItem    *item = &mcvlist->items[i];
+
+		pfree(item->values);
+		pfree(item->isnull);
+	}
+	pfree(mcvlist);
 }

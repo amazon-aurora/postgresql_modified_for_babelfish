@@ -147,6 +147,13 @@ void
 HeapTupleSetHintBits(HeapTupleHeader tuple, Buffer buffer,
 					 uint16 infomask, TransactionId xid)
 {
+	/*
+	 * The uses from heapam.c rely on being able to perform the hint bit
+	 * updates, which can only be guaranteed if we are holding an exclusive
+	 * lock on the buffer - which all callers are doing.
+	 */
+	Assert(BufferIsLockedByMeInMode(buffer, BUFFER_LOCK_EXCLUSIVE));
+
 	SetHintBits(tuple, buffer, infomask, xid);
 }
 
@@ -1607,6 +1614,60 @@ HeapTupleSatisfiesHistoricMVCC(HeapTuple htup, Snapshot snapshot,
 	/* xmax is between [xmin, xmax), but known not to have committed yet */
 	else
 		return true;
+}
+
+/*
+ * Perform HeaptupleSatisfiesMVCC() on each passed in tuple. This is more
+ * efficient than doing HeapTupleSatisfiesMVCC() one-by-one.
+ *
+ * To be checked tuples are passed via BatchMVCCState->tuples. Each tuple's
+ * visibility is stored in batchmvcc->visible[]. In addition,
+ * ->vistuples_dense is set to contain the offsets of visible tuples.
+ *
+ * The reason this is more efficient than HeapTupleSatisfiesMVCC() is that it
+ * avoids a cross-translation-unit function call for each tuple and allows the
+ * compiler to optimize across calls to HeapTupleSatisfiesMVCC. In the future
+ * it will also allow more efficient setting of hint bits.
+ *
+ * Returns the number of visible tuples.
+ *
+ * Babelfish T-SQL table variables use custom visibility rules implemented
+ * via a hook (the same one HeapTupleSatisfiesVisibility() dispatches to).
+ * For such relations, the hook is called for each tuple instead of
+ * HeapTupleSatisfiesMVCC().
+ */
+int
+HeapTupleSatisfiesMVCCBatch(Relation relation, Snapshot snapshot,
+							Buffer buffer, int ntups,
+							BatchMVCCState *batchmvcc,
+							OffsetNumber *vistuples_dense)
+{
+	int			nvis = 0;
+	bool		is_table_variable;
+
+	Assert(IsMVCCSnapshot(snapshot));
+
+	is_table_variable = (table_variable_satisfies_visibility_hook && IsTsqlTableVariable(relation));
+
+	for (int i = 0; i < ntups; i++)
+	{
+		bool		valid;
+		HeapTuple	tup = &batchmvcc->tuples[i];
+
+		if (is_table_variable)
+			valid = table_variable_satisfies_visibility_hook(tup, snapshot, buffer);
+		else
+			valid = HeapTupleSatisfiesMVCC(tup, snapshot, buffer);
+		batchmvcc->visible[i] = valid;
+
+		if (likely(valid))
+		{
+			vistuples_dense[nvis] = tup->t_self.ip_posid;
+			nvis++;
+		}
+	}
+
+	return nvis;
 }
 
 /*

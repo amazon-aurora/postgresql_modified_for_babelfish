@@ -92,7 +92,7 @@
 
 
 #define LW_FLAG_HAS_WAITERS			((uint32) 1 << 31)
-#define LW_FLAG_RELEASE_OK			((uint32) 1 << 30)
+#define LW_FLAG_WAKE_IN_PROGRESS	((uint32) 1 << 30)
 #define LW_FLAG_LOCKED				((uint32) 1 << 29)
 #define LW_FLAG_BITS				3
 #define LW_FLAG_MASK				(((1<<LW_FLAG_BITS)-1)<<(32-LW_FLAG_BITS))
@@ -246,14 +246,14 @@ PRINT_LWDEBUG(const char *where, LWLock *lock, LWLockMode mode)
 		ereport(LOG,
 				(errhidestmt(true),
 				 errhidecontext(true),
-				 errmsg_internal("%d: %s(%s %p): excl %u shared %u haswaiters %u waiters %u rOK %d",
+				 errmsg_internal("%d: %s(%s %p): excl %u shared %u haswaiters %u waiters %u waking %d",
 								 MyProcPid,
 								 where, T_NAME(lock), lock,
 								 (state & LW_VAL_EXCLUSIVE) != 0,
 								 state & LW_SHARED_MASK,
 								 (state & LW_FLAG_HAS_WAITERS) != 0,
 								 pg_atomic_read_u32(&lock->nwaiters),
-								 (state & LW_FLAG_RELEASE_OK) != 0)));
+								 (state & LW_FLAG_WAKE_IN_PROGRESS) != 0)));
 	}
 }
 
@@ -700,7 +700,7 @@ LWLockInitialize(LWLock *lock, int tranche_id)
 	/* verify the tranche_id is valid */
 	(void) GetLWTrancheName(tranche_id);
 
-	pg_atomic_init_u32(&lock->state, LW_FLAG_RELEASE_OK);
+	pg_atomic_init_u32(&lock->state, 0);
 #ifdef LOCK_DEBUG
 	pg_atomic_init_u32(&lock->nwaiters, 0);
 #endif
@@ -929,14 +929,12 @@ LWLockWaitListUnlock(LWLock *lock)
 static void
 LWLockWakeup(LWLock *lock)
 {
-	bool		new_release_ok;
+	bool		new_wake_in_progress = false;
 	bool		wokeup_somebody = false;
 	proclist_head wakeup;
 	proclist_mutable_iter iter;
 
 	proclist_init(&wakeup);
-
-	new_release_ok = true;
 
 	/* lock wait list while collecting backends to wake up */
 	LWLockWaitListLock(lock);
@@ -958,7 +956,7 @@ LWLockWakeup(LWLock *lock)
 			 * that are just waiting for the lock to become free don't retry
 			 * automatically.
 			 */
-			new_release_ok = false;
+			new_wake_in_progress = true;
 
 			/*
 			 * Don't wakeup (further) exclusive locks.
@@ -997,10 +995,10 @@ LWLockWakeup(LWLock *lock)
 
 			/* compute desired flags */
 
-			if (new_release_ok)
-				desired_state |= LW_FLAG_RELEASE_OK;
+			if (new_wake_in_progress)
+				desired_state |= LW_FLAG_WAKE_IN_PROGRESS;
 			else
-				desired_state &= ~LW_FLAG_RELEASE_OK;
+				desired_state &= ~LW_FLAG_WAKE_IN_PROGRESS;
 
 			if (proclist_is_empty(&lock->waiters))
 				desired_state &= ~LW_FLAG_HAS_WAITERS;
@@ -1131,10 +1129,10 @@ LWLockDequeueSelf(LWLock *lock)
 		 */
 
 		/*
-		 * Reset RELEASE_OK flag if somebody woke us before we removed
-		 * ourselves - they'll have set it to false.
+		 * Clear LW_FLAG_WAKE_IN_PROGRESS if somebody woke us before we
+		 * removed ourselves - they'll have set it.
 		 */
-		pg_atomic_fetch_or_u32(&lock->state, LW_FLAG_RELEASE_OK);
+		pg_atomic_fetch_and_u32(&lock->state, ~LW_FLAG_WAKE_IN_PROGRESS);
 
 		/*
 		 * Now wait for the scheduled wakeup, otherwise our ->lwWaiting would
@@ -1301,7 +1299,7 @@ LWLockAcquire(LWLock *lock, LWLockMode mode)
 		}
 
 		/* Retrying, allow LWLockRelease to release waiters again. */
-		pg_atomic_fetch_or_u32(&lock->state, LW_FLAG_RELEASE_OK);
+		pg_atomic_fetch_and_u32(&lock->state, ~LW_FLAG_WAKE_IN_PROGRESS);
 
 #ifdef LOCK_DEBUG
 		{
@@ -1636,10 +1634,10 @@ LWLockWaitForVar(LWLock *lock, pg_atomic_uint64 *valptr, uint64 oldval,
 		LWLockQueueSelf(lock, LW_WAIT_UNTIL_FREE);
 
 		/*
-		 * Set RELEASE_OK flag, to make sure we get woken up as soon as the
-		 * lock is released.
+		 * Clear LW_FLAG_WAKE_IN_PROGRESS flag, to make sure we get woken up
+		 * as soon as the lock is released.
 		 */
-		pg_atomic_fetch_or_u32(&lock->state, LW_FLAG_RELEASE_OK);
+		pg_atomic_fetch_and_u32(&lock->state, ~LW_FLAG_WAKE_IN_PROGRESS);
 
 		/*
 		 * We're now guaranteed to be woken up if necessary. Recheck the lock
@@ -1785,25 +1783,18 @@ LWLockUpdateVar(LWLock *lock, pg_atomic_uint64 *valptr, uint64 val)
 
 
 /*
- * Stop treating lock as held by current backend.
- *
- * This is the code that can be shared between actually releasing a lock
- * (LWLockRelease()) and just not tracking ownership of the lock anymore
- * without releasing the lock (LWLockDisown()).
- *
- * Returns the mode in which the lock was held by the current backend.
- *
- * NB: This does not call RESUME_INTERRUPTS(), but leaves that responsibility
- * of the caller.
+ * LWLockRelease - release a previously acquired lock
  *
  * NB: This will leave lock->owner pointing to the current backend (if
  * LOCK_DEBUG is set). This is somewhat intentional, as it makes it easier to
  * debug cases of missing wakeups during lock release.
  */
-static inline LWLockMode
-LWLockDisownInternal(LWLock *lock)
+void
+LWLockRelease(LWLock *lock)
 {
 	LWLockMode	mode;
+	uint32		oldstate;
+	bool		check_waiters;
 	int			i;
 
 	/*
@@ -1823,18 +1814,7 @@ LWLockDisownInternal(LWLock *lock)
 	for (; i < num_held_lwlocks; i++)
 		held_lwlocks[i] = held_lwlocks[i + 1];
 
-	return mode;
-}
-
-/*
- * Helper function to release lock, shared between LWLockRelease() and
- * LWLockReleaseDisowned().
- */
-static void
-LWLockReleaseInternal(LWLock *lock, LWLockMode mode)
-{
-	uint32		oldstate;
-	bool		check_waiters;
+	PRINT_LWDEBUG("LWLockRelease", lock, mode);
 
 	/*
 	 * Release my hold on lock, after that it can immediately be acquired by
@@ -1852,11 +1832,11 @@ LWLockReleaseInternal(LWLock *lock, LWLockMode mode)
 		TRACE_POSTGRESQL_LWLOCK_RELEASE(T_NAME(lock));
 
 	/*
-	 * We're still waiting for backends to get scheduled, don't wake them up
-	 * again.
+	 * Check if we're still waiting for backends to get scheduled, if so,
+	 * don't wake them up again.
 	 */
-	if ((oldstate & (LW_FLAG_HAS_WAITERS | LW_FLAG_RELEASE_OK)) ==
-		(LW_FLAG_HAS_WAITERS | LW_FLAG_RELEASE_OK) &&
+	if ((oldstate & LW_FLAG_HAS_WAITERS) &&
+		!(oldstate & LW_FLAG_WAKE_IN_PROGRESS) &&
 		(oldstate & LW_LOCK_MASK) == 0)
 		check_waiters = true;
 	else
@@ -1872,52 +1852,11 @@ LWLockReleaseInternal(LWLock *lock, LWLockMode mode)
 		LOG_LWDEBUG("LWLockRelease", lock, "releasing waiters");
 		LWLockWakeup(lock);
 	}
-}
-
-
-/*
- * Stop treating lock as held by current backend.
- *
- * After calling this function it's the callers responsibility to ensure that
- * the lock gets released (via LWLockReleaseDisowned()), even in case of an
- * error. This only is desirable if the lock is going to be released in a
- * different process than the process that acquired it.
- */
-void
-LWLockDisown(LWLock *lock)
-{
-	LWLockDisownInternal(lock);
-
-	RESUME_INTERRUPTS();
-}
-
-/*
- * LWLockRelease - release a previously acquired lock
- */
-void
-LWLockRelease(LWLock *lock)
-{
-	LWLockMode	mode;
-
-	mode = LWLockDisownInternal(lock);
-
-	PRINT_LWDEBUG("LWLockRelease", lock, mode);
-
-	LWLockReleaseInternal(lock, mode);
 
 	/*
 	 * Now okay to allow cancel/die interrupts.
 	 */
 	RESUME_INTERRUPTS();
-}
-
-/*
- * Release lock previously disowned with LWLockDisown().
- */
-void
-LWLockReleaseDisowned(LWLock *lock, LWLockMode mode)
-{
-	LWLockReleaseInternal(lock, mode);
 }
 
 /*
@@ -1944,6 +1883,10 @@ LWLockReleaseClearVar(LWLock *lock, pg_atomic_uint64 *valptr, uint64 val)
  * unchanged by this operation.  This is necessary since InterruptHoldoffCount
  * has been set to an appropriate level earlier in error recovery. We could
  * decrement it below zero if we allow it to drop for each released lock!
+ *
+ * Note that this function must be safe to call even before the LWLock
+ * subsystem has been initialized (e.g., during early startup failures).
+ * In that case, num_held_lwlocks will be 0 and we do nothing.
  */
 void
 LWLockReleaseAll(void)
@@ -1954,23 +1897,10 @@ LWLockReleaseAll(void)
 
 		LWLockRelease(held_lwlocks[num_held_lwlocks - 1].lock);
 	}
+
+	Assert(num_held_lwlocks == 0);
 }
 
-
-/*
- * ForEachLWLockHeldByMe - run a callback for each held lock
- *
- * This is meant as debug support only.
- */
-void
-ForEachLWLockHeldByMe(void (*callback) (LWLock *, LWLockMode, void *),
-					  void *context)
-{
-	int			i;
-
-	for (i = 0; i < num_held_lwlocks; i++)
-		callback(held_lwlocks[i].lock, held_lwlocks[i].mode, context);
-}
 
 /*
  * LWLockHeldByMe - test whether my process holds a lock in any mode

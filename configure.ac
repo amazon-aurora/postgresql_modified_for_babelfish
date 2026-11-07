@@ -387,6 +387,13 @@ fi
 
 AC_PROG_CXX([$pgac_cxx_list])
 
+if test -n "$ac_ct_CXX"; then
+  have_cxx=yes
+else
+  have_cxx=no
+fi
+AC_SUBST(have_cxx)
+
 # Check if it's Intel's compiler, which (usually) pretends to be gcc,
 # but has idiosyncrasies of its own.  We assume icc will define
 # __INTEL_COMPILER regardless of CFLAGS.
@@ -1687,11 +1694,19 @@ PGAC_UNION_SEMUN
 AC_CHECK_TYPES(socklen_t, [], [], [#include <sys/socket.h>])
 PGAC_STRUCT_SOCKADDR_SA_LEN
 
-# Even though restrict is in C99 and should be supported by all
-# supported compilers, this test is useful because it will prefer a
-# spelling that also works in C++ (often __restrict).  (restrict is
-# not part of the C++ standard.)
+# MSVC doesn't cope well with defining restrict to __restrict, the
+# spelling it understands, because it conflicts with
+# __declspec(restrict) in C++ mode. Therefore we define pg_restrict to
+# the appropriate definition, which presumably won't conflict.
 AC_C_RESTRICT
+if test "$ac_cv_c_restrict" = "no"; then
+  pg_restrict=""
+else
+  pg_restrict="$ac_cv_c_restrict"
+fi
+AC_DEFINE_UNQUOTED([pg_restrict], [$pg_restrict],
+[Define to keyword to use for C99 restrict support, or to nothing if not
+supported])
 
 AC_CHECK_TYPES([struct option], [], [],
 [#ifdef HAVE_GETOPT_H
@@ -1823,7 +1838,7 @@ AC_CHECK_DECLS(posix_fadvise, [], [], [#include <fcntl.h>])
 ]) # fi
 
 AC_CHECK_DECLS(fdatasync, [], [], [#include <unistd.h>])
-AC_CHECK_DECLS([strlcat, strlcpy, strnlen, strsep, timingsafe_bcmp])
+AC_CHECK_DECLS([strlcat, strlcpy, strsep, timingsafe_bcmp])
 
 # We can't use AC_CHECK_FUNCS to detect these functions, because it
 # won't handle deployment target restrictions on macOS
@@ -1844,7 +1859,6 @@ AC_REPLACE_FUNCS(m4_normalize([
 	mkdtemp
 	strlcat
 	strlcpy
-	strnlen
 	strsep
 	timingsafe_bcmp
 ]))

@@ -760,6 +760,7 @@ CLANG
 LLVM_CONFIG
 AWK
 with_llvm
+have_cxx
 ac_ct_CXX
 CXXFLAGS
 CXX
@@ -4767,6 +4768,13 @@ ac_cpp='$CPP $CPPFLAGS'
 ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
 ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
 ac_compiler_gnu=$ac_cv_c_compiler_gnu
+
+
+if test -n "$ac_ct_CXX"; then
+  have_cxx=yes
+else
+  have_cxx=no
+fi
 
 
 # Check if it's Intel's compiler, which (usually) pretends to be gcc,
@@ -15131,10 +15139,10 @@ _ACEOF
 fi
 
 
-# Even though restrict is in C99 and should be supported by all
-# supported compilers, this test is useful because it will prefer a
-# spelling that also works in C++ (often __restrict).  (restrict is
-# not part of the C++ standard.)
+# MSVC doesn't cope well with defining restrict to __restrict, the
+# spelling it understands, because it conflicts with
+# __declspec(restrict) in C++ mode. Therefore we define pg_restrict to
+# the appropriate definition, which presumably won't conflict.
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for C/C++ restrict keyword" >&5
 $as_echo_n "checking for C/C++ restrict keyword... " >&6; }
 if ${ac_cv_c_restrict+:} false; then :
@@ -15180,6 +15188,16 @@ $as_echo "$ac_cv_c_restrict" >&6; }
 _ACEOF
  ;;
  esac
+
+if test "$ac_cv_c_restrict" = "no"; then
+  pg_restrict=""
+else
+  pg_restrict="$ac_cv_c_restrict"
+fi
+
+cat >>confdefs.h <<_ACEOF
+#define pg_restrict $pg_restrict
+_ACEOF
 
 
 ac_fn_c_check_type "$LINENO" "struct option" "ac_cv_type_struct_option" "#ifdef HAVE_GETOPT_H
@@ -16079,16 +16097,6 @@ fi
 cat >>confdefs.h <<_ACEOF
 #define HAVE_DECL_STRLCPY $ac_have_decl
 _ACEOF
-ac_fn_c_check_decl "$LINENO" "strnlen" "ac_cv_have_decl_strnlen" "$ac_includes_default"
-if test "x$ac_cv_have_decl_strnlen" = xyes; then :
-  ac_have_decl=1
-else
-  ac_have_decl=0
-fi
-
-cat >>confdefs.h <<_ACEOF
-#define HAVE_DECL_STRNLEN $ac_have_decl
-_ACEOF
 ac_fn_c_check_decl "$LINENO" "strsep" "ac_cv_have_decl_strsep" "$ac_includes_default"
 if test "x$ac_cv_have_decl_strsep" = xyes; then :
   ac_have_decl=1
@@ -16263,19 +16271,6 @@ else
   case " $LIBOBJS " in
   *" strlcpy.$ac_objext "* ) ;;
   *) LIBOBJS="$LIBOBJS strlcpy.$ac_objext"
- ;;
-esac
-
-fi
-
-ac_fn_c_check_func "$LINENO" "strnlen" "ac_cv_func_strnlen"
-if test "x$ac_cv_func_strnlen" = xyes; then :
-  $as_echo "#define HAVE_STRNLEN 1" >>confdefs.h
-
-else
-  case " $LIBOBJS " in
-  *" strnlen.$ac_objext "* ) ;;
-  *) LIBOBJS="$LIBOBJS strnlen.$ac_objext"
  ;;
 esac
 

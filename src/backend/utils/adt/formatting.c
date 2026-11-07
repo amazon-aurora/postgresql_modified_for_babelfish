@@ -68,17 +68,9 @@
 #include <math.h>
 #include <float.h>
 #include <limits.h>
-#include <wctype.h>
 
-#ifdef USE_ICU
-#include <unicode/ustring.h>
-#endif
-
-#include "catalog/pg_collation.h"
 #include "catalog/pg_type.h"
 #include "common/int.h"
-#include "common/unicode_case.h"
-#include "common/unicode_category.h"
 #include "mb/pg_wchar.h"
 #include "nodes/miscnodes.h"
 #include "parser/scansup.h"
@@ -1833,7 +1825,7 @@ str_casefold(const char *buff, size_t nbytes, Oid collid)
 		ereport(ERROR,
 				(errcode(ERRCODE_INDETERMINATE_COLLATION),
 				 errmsg("could not determine which collation to use for %s function",
-						"lower()"),
+						"casefold()"),
 				 errhint("Use the COLLATE clause to set the collation explicitly.")));
 	}
 
