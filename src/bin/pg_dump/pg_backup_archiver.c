@@ -3011,7 +3011,8 @@ _tocEntryRequired(TocEntry *te, teSection curSection, ArchiveHandle *AH)
 	if (strcmp(te->desc, "BABELFISHGUCS") == 0 ||
 		strcmp(te->desc, "BABELFISHCHECKS") == 0)
 		return res;
-	if (strcmp(te->desc, "STATISTICS DATA") == 0)
+	if ((strcmp(te->desc, "STATISTICS DATA") == 0) ||
+		(strcmp(te->desc, "EXTENDED STATISTICS DATA") == 0))
 	{
 		if (!ropt->dumpStatistics)
 			return 0;
@@ -3436,8 +3437,6 @@ _doSetFixedOutputState(ArchiveHandle *AH)
 
 	/* Avoid annoying notices etc */
 	ahprintf(AH, "SET client_min_messages = warning;\n");
-	if (!AH->public.std_strings)
-		ahprintf(AH, "SET escape_string_warning = off;\n");
 
 	/* Adjust row-security state */
 	if (ropt && ropt->enable_row_security)

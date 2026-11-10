@@ -69,10 +69,8 @@ typedef enum
 	DATEFIRST_SUNDAY
 } DATEFIRST;
 
-/* GUC variables in scan.l (every one of these is a bad idea :-() */
+/* GUC variable in scan.l */
 extern PGDLLIMPORT int backslash_quote;
-extern PGDLLIMPORT bool escape_string_warning;
-extern PGDLLIMPORT bool standard_conforming_strings;
 extern PGDLLEXPORT int sql_dialect;
 extern PGDLLEXPORT bool pltsql_case_insensitive_identifiers;
 

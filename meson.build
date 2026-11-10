@@ -586,6 +586,33 @@ if not cc.compiles(c11_test, name: 'C11')
 endif
 
 
+# Do we need an option to enable C++11?
+cxx11_test = '''
+#if !defined __cplusplus || __cplusplus < 201103L
+# error "Compiler does not advertise C++11 conformance"
+#endif
+'''
+
+if have_cxx and not cxx.compiles(cxx11_test, name: 'C++11')
+  cxx11_ok = false
+  if cxx.get_id() == 'msvc'
+    cxx11_test_args = ['/std:c++14']  # oldest version supported
+  else
+    cxx11_test_args = ['-std=gnu++11', '-std=c++11']
+  endif
+  foreach arg : cxx11_test_args
+    if cxx.compiles(cxx11_test, name: 'C++11 with @0@'.format(arg), args: [arg])
+      cxx11_ok = true
+      cxxflags += arg
+      break
+    endif
+  endforeach
+  if not cxx11_ok
+    error('C++ compiler does not support C++11')
+  endif
+endif
+
+
 postgres_inc = [include_directories(postgres_inc_d)]
 test_lib_d = postgres_lib_d
 test_c_args = cppflags + cflags
@@ -2614,7 +2641,9 @@ endif
 
 if host_cpu == 'x86_64'
 
-  if cc.compiles('''
+  if cc.get_id() == 'msvc'
+    cdata.set('HAVE_X86_64_POPCNTQ', 1)
+  elif cc.compiles('''
       void main(void)
       {
           long long x = 1; long long r;
@@ -2845,6 +2874,30 @@ int main(void)
     cdata.set('HAVE_TYPEOF', 1)
     if kw != 'typeof'
       cdata.set('typeof', kw)
+    endif
+
+    break
+  endif
+endforeach
+
+# Check if the C compiler understands typeof_unqual or a variant.  Define
+# HAVE_TYPEOF_UNQUAL if so, and define 'typeof_unqual' to the actual key word.
+foreach kw : ['typeof_unqual', '__typeof_unqual__']
+  if cc.compiles('''
+int main(void)
+{
+    int x = 0;
+    @0@(x) y;
+    y = x;
+    return y;
+}
+'''.format(kw),
+    name: kw,
+    args: test_c_args, include_directories: postgres_inc)
+
+    cdata.set('HAVE_TYPEOF_UNQUAL', 1)
+    if kw != 'typeof_unqual'
+      cdata.set('typeof_unqual', kw)
     endif
 
     break

@@ -2576,8 +2576,9 @@ ReorderBufferTupleCidEnt
 ReorderBufferTupleCidKey
 ReorderBufferUpdateProgressTxnCB
 ReorderTuple
-RepOriginId
 ReparameterizeForeignPathByChild_function
+ReplOriginId
+ReplOriginXactState
 ReplaceVarsFromTargetList_context
 ReplaceVarsNoMatchOption
 ReplaceWrapOption
@@ -2804,6 +2805,7 @@ SharedTypmodTableEntry
 Sharedsort
 ShellTypeInfo
 ShippableCacheEntry
+ShmemAllocatorData
 ShippableCacheKey
 ShmemIndexEnt
 ShutdownForeignScan_function
@@ -2898,6 +2900,7 @@ SplitPoint
 SplitTextOutputData
 SplitVar
 StackElem
+StakindFlags
 StartDataPtrType
 StartLOPtrType
 StartLOsPtrType
