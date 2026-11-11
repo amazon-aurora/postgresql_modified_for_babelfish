@@ -99,7 +99,7 @@ static int	oid_compare(const void *a, const void *b);
 void
 InitCatalogCache(void)
 {
-	int			cacheId;
+	SysCacheIdentifier cacheId;
 
 	Assert(!CacheInitialized);
 
@@ -205,7 +205,7 @@ InitExtensionCatalogCache(struct cachedesc *ext_cacheinfo, int startid, int ext_
 void
 InitCatalogCachePhase2(void)
 {
-	int			cacheId;
+	SysCacheIdentifier cacheId;
 
 	Assert(CacheInitialized);
 
@@ -231,7 +231,7 @@ InitCatalogCachePhase2(void)
  *	CAUTION: The tuple that is returned must NOT be freed by the caller!
  */
 HeapTuple
-SearchSysCache(int cacheId,
+SearchSysCache(SysCacheIdentifier cacheId,
 			   Datum key1,
 			   Datum key2,
 			   Datum key3,
@@ -243,7 +243,7 @@ SearchSysCache(int cacheId,
 }
 
 HeapTuple
-SearchSysCache1(int cacheId,
+SearchSysCache1(SysCacheIdentifier cacheId,
 				Datum key1)
 {
 	Assert(cacheId >= 0 && cacheId < SysCacheSize && SysCache[cacheId]);
@@ -253,7 +253,7 @@ SearchSysCache1(int cacheId,
 }
 
 HeapTuple
-SearchSysCache2(int cacheId,
+SearchSysCache2(SysCacheIdentifier cacheId,
 				Datum key1, Datum key2)
 {
 	Assert(cacheId >= 0 && cacheId < SysCacheSize && SysCache[cacheId]);
@@ -263,7 +263,7 @@ SearchSysCache2(int cacheId,
 }
 
 HeapTuple
-SearchSysCache3(int cacheId,
+SearchSysCache3(SysCacheIdentifier cacheId,
 				Datum key1, Datum key2, Datum key3)
 {
 	Assert(cacheId >= 0 && cacheId < SysCacheSize && SysCache[cacheId]);
@@ -273,7 +273,7 @@ SearchSysCache3(int cacheId,
 }
 
 HeapTuple
-SearchSysCache4(int cacheId,
+SearchSysCache4(SysCacheIdentifier cacheId,
 				Datum key1, Datum key2, Datum key3, Datum key4)
 {
 	Assert(cacheId >= 0 && cacheId < SysCacheSize && SysCache[cacheId]);
@@ -311,7 +311,7 @@ ReleaseSysCache(HeapTuple tuple)
  * in such cases.
  */
 HeapTuple
-SearchSysCacheLocked1(int cacheId,
+SearchSysCacheLocked1(SysCacheIdentifier cacheId,
 					  Datum key1)
 {
 	CatCache   *cache = SysCache[cacheId];
@@ -403,7 +403,7 @@ SearchSysCacheLocked1(int cacheId,
  * heap_freetuple() the result when done with it.
  */
 HeapTuple
-SearchSysCacheCopy(int cacheId,
+SearchSysCacheCopy(SysCacheIdentifier cacheId,
 				   Datum key1,
 				   Datum key2,
 				   Datum key3,
@@ -431,7 +431,7 @@ SearchSysCacheCopy(int cacheId,
  * function for tuples related to ENR entries).
  */
 HeapTuple
-SearchSysCacheLockedCopy1(int cacheId,
+SearchSysCacheLockedCopy1(SysCacheIdentifier cacheId,
 						  Datum key1)
 {
 	HeapTuple	tuple,
@@ -452,7 +452,7 @@ SearchSysCacheLockedCopy1(int cacheId,
  * No lock is retained on the syscache entry.
  */
 bool
-SearchSysCacheExists(int cacheId,
+SearchSysCacheExists(SysCacheIdentifier cacheId,
 					 Datum key1,
 					 Datum key2,
 					 Datum key3,
@@ -475,7 +475,7 @@ SearchSysCacheExists(int cacheId,
  * No lock is retained on the syscache entry.
  */
 Oid
-GetSysCacheOid(int cacheId,
+GetSysCacheOid(SysCacheIdentifier cacheId,
 			   AttrNumber oidcol,
 			   Datum key1,
 			   Datum key2,
@@ -627,7 +627,7 @@ SearchSysCacheCopyAttNum(Oid relid, int16 attnum)
  * a different cache for the same catalog the tuple was fetched from.
  */
 Datum
-SysCacheGetAttr(int cacheId, HeapTuple tup,
+SysCacheGetAttr(SysCacheIdentifier cacheId, HeapTuple tup,
 				AttrNumber attributeNumber,
 				bool *isNull)
 {
@@ -657,7 +657,7 @@ SysCacheGetAttr(int cacheId, HeapTuple tup,
  * be NULL.
  */
 Datum
-SysCacheGetAttrNotNull(int cacheId, HeapTuple tup,
+SysCacheGetAttrNotNull(SysCacheIdentifier cacheId, HeapTuple tup,
 					   AttrNumber attributeNumber)
 {
 	bool		isnull;
@@ -687,7 +687,7 @@ SysCacheGetAttrNotNull(int cacheId, HeapTuple tup,
  * catcache code that need to be able to compute the hash values.
  */
 uint32
-GetSysCacheHashValue(int cacheId,
+GetSysCacheHashValue(SysCacheIdentifier cacheId,
 					 Datum key1,
 					 Datum key2,
 					 Datum key3,
@@ -703,7 +703,7 @@ GetSysCacheHashValue(int cacheId,
  * List-search interface
  */
 struct catclist *
-SearchSysCacheList(int cacheId, int nkeys,
+SearchSysCacheList(SysCacheIdentifier cacheId, int nkeys,
 				   Datum key1, Datum key2, Datum key3)
 {
 	if (cacheId < 0 || cacheId >= SysCacheSize || !SysCache[cacheId])
@@ -722,7 +722,7 @@ SearchSysCacheList(int cacheId, int nkeys,
  *	This routine is only quasi-public: it should only be used by inval.c.
  */
 void
-SysCacheInvalidate(int cacheId, uint32 hashValue)
+SysCacheInvalidate(SysCacheIdentifier cacheId, uint32 hashValue)
 {
 	if (cacheId < 0 || cacheId >= SysCacheSize)
 		elog(ERROR, "invalid cache ID: %d", cacheId);

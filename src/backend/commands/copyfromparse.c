@@ -143,7 +143,8 @@ fill_missing_values_in_copyfrom_hook_type fill_missing_values_in_copyfrom_hook =
 
 /* non-export function prototypes */
 static bool CopyReadLine(CopyFromState cstate, bool is_csv);
-static bool CopyReadLineText(CopyFromState cstate, bool is_csv);
+static pg_attribute_always_inline bool CopyReadLineText(CopyFromState cstate,
+														bool is_csv);
 static int	CopyReadAttributesText(CopyFromState cstate);
 static int	CopyReadAttributesCSV(CopyFromState cstate);
 static Datum CopyReadBinaryAttribute(CopyFromState cstate, FmgrInfo *flinfo,
@@ -1178,8 +1179,17 @@ CopyReadLine(CopyFromState cstate, bool is_csv)
 	resetStringInfo(&cstate->line_buf);
 	cstate->line_buf_valid = false;
 
-	/* Parse data and transfer into line_buf */
-	result = CopyReadLineText(cstate, is_csv);
+	/*
+	 * Parse data and transfer into line_buf.
+	 *
+	 * Because this is performance critical, we inline CopyReadLineText() and
+	 * pass the boolean parameters as constants to allow the compiler to emit
+	 * specialized code with fewer branches.
+	 */
+	if (is_csv)
+		result = CopyReadLineText(cstate, true);
+	else
+		result = CopyReadLineText(cstate, false);
 
 	if (result)
 	{
@@ -1246,7 +1256,7 @@ CopyReadLine(CopyFromState cstate, bool is_csv)
 /*
  * CopyReadLineText - inner loop of CopyReadLine for text mode
  */
-static bool
+static pg_attribute_always_inline bool
 CopyReadLineText(CopyFromState cstate, bool is_csv)
 {
 	char	   *copy_input_buf;

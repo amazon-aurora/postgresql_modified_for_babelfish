@@ -226,8 +226,8 @@ extern int16 *readAttrNumberCols(int numCols);
 extern void *copyObjectImpl(const void *from);
 
 /* cast result back to argument type, if supported by compiler */
-#ifdef HAVE_TYPEOF_UNQUAL
-#define copyObject(obj) ((typeof_unqual(*(obj)) *) copyObjectImpl(obj))
+#ifdef HAVE_TYPEOF
+#define copyObject(obj) ((typeof(obj)) copyObjectImpl(obj))
 #else
 #define copyObject(obj) copyObjectImpl(obj)
 #endif
@@ -428,6 +428,7 @@ typedef enum OnConflictAction
 	ONCONFLICT_NONE,			/* No "ON CONFLICT" clause */
 	ONCONFLICT_NOTHING,			/* ON CONFLICT ... DO NOTHING */
 	ONCONFLICT_UPDATE,			/* ON CONFLICT ... DO UPDATE */
+	ONCONFLICT_SELECT,			/* ON CONFLICT ... DO SELECT */
 } OnConflictAction;
 
 /*

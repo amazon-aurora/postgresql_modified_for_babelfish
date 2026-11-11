@@ -217,12 +217,6 @@ char *bbf_db_name = NULL;
 static SequenceItem *sequences = NULL;
 static int	nsequences = 0;
 
-/*
- * For binary upgrade, the dump ID of pg_largeobject_metadata is saved for use
- * as a dependency for pg_shdepend and any large object comments/seclabels.
- */
-static DumpId lo_metadata_dumpId;
-
 /* Maximum number of relations to fetch in a fetchAttributeStats() call. */
 #define MAX_ATTR_STATS_RELS 64
 
@@ -1131,26 +1125,17 @@ main(int argc, char **argv)
 		getTableData(&dopt, tblinfo, numTables, RELKIND_SEQUENCE);
 
 	/*
-	 * For binary upgrade mode, dump pg_largeobject_metadata and the
-	 * associated pg_shdepend rows. This is faster to restore than the
-	 * equivalent set of large object commands.  We can only do this for
-	 * upgrades from v12 and newer; in older versions, pg_largeobject_metadata
-	 * was created WITH OIDS, so the OID column is hidden and won't be dumped.
+	 * For binary upgrade mode, dump the pg_shdepend rows for large objects
+	 * and maybe even pg_largeobject_metadata (see comment below for details).
+	 * This is faster to restore than the equivalent set of large object
+	 * commands.
 	 */
-	if (dopt.binary_upgrade && fout->remoteVersion >= 120000)
+	if (dopt.binary_upgrade)
 	{
-		TableInfo  *lo_metadata = findTableByOid(LargeObjectMetadataRelationId);
-		TableInfo  *shdepend = findTableByOid(SharedDependRelationId);
+		TableInfo  *shdepend;
 
-		makeTableDataInfo(&dopt, lo_metadata);
+		shdepend = findTableByOid(SharedDependRelationId);
 		makeTableDataInfo(&dopt, shdepend);
-
-		/*
-		 * Save pg_largeobject_metadata's dump ID for use as a dependency for
-		 * pg_shdepend and any large object comments/seclabels.
-		 */
-		lo_metadata_dumpId = lo_metadata->dataObj->dobj.dumpId;
-		addObjectDependency(&shdepend->dataObj->dobj, lo_metadata_dumpId);
 
 		/*
 		 * Only dump large object shdepend rows for this database.
@@ -1160,21 +1145,19 @@ main(int argc, char **argv)
 			"            WHERE datname = current_database())";
 
 		/*
-		 * If upgrading from v16 or newer, only dump large objects with
-		 * comments/seclabels.  For these upgrades, pg_upgrade can copy/link
-		 * pg_largeobject_metadata's files (which is usually faster) but we
-		 * still need to dump LOs with comments/seclabels here so that the
-		 * subsequent COMMENT and SECURITY LABEL commands work.  pg_upgrade
-		 * can't copy/link the files from older versions because aclitem
-		 * (needed by pg_largeobject_metadata.lomacl) changed its storage
-		 * format in v16.
+		 * For binary upgrades from v16 and newer versions, we can copy
+		 * pg_largeobject_metadata's files from the old cluster, so we don't
+		 * need to dump its contents.  pg_upgrade can't copy/link the files
+		 * from older versions because aclitem (needed by
+		 * pg_largeobject_metadata.lomacl) changed its storage format in v16.
 		 */
-		if (fout->remoteVersion >= 160000)
-			lo_metadata->dataObj->filtercond = "WHERE oid IN "
-				"(SELECT objoid FROM pg_description "
-				"WHERE classoid = " CppAsString2(LargeObjectRelationId) " "
-				"UNION SELECT objoid FROM pg_seclabel "
-				"WHERE classoid = " CppAsString2(LargeObjectRelationId) ")";
+		if (fout->remoteVersion < 160000)
+		{
+			TableInfo  *lo_metadata;
+
+			lo_metadata = findTableByOid(LargeObjectMetadataRelationId);
+			makeTableDataInfo(&dopt, lo_metadata);
+		}
 	}
 
 	/*
@@ -1573,7 +1556,7 @@ setup_connection(Archive *AH, const char *dumpencoding,
 	 * Initialize prepared-query state to "nothing prepared".  We do this here
 	 * so that a parallel dump worker will have its own state.
 	 */
-	AH->is_prepared = (bool *) pg_malloc0(NUM_PREP_QUERIES * sizeof(bool));
+	AH->is_prepared = pg_malloc0_array(bool, NUM_PREP_QUERIES);
 
 	/*
 	 * Start transaction-snapshot mode transaction to dump consistent data.
@@ -2438,11 +2421,14 @@ dumpTableData_copy(Archive *fout, const void *dcontext)
 	column_list = fmtCopyColumnList(tbinfo, clistBuf);
 
 	/*
-	 * Use COPY (SELECT ...) TO when dumping a foreign table's data, and when
-	 * a filter condition was specified.  For other cases a simple COPY
-	 * suffices.
+	 * Use COPY (SELECT ...) TO when dumping a foreign table's data, when a
+	 * filter condition was specified, and when in binary upgrade mode and
+	 * dumping an old pg_largeobject_metadata defined WITH OIDS.  For other
+	 * cases a simple COPY suffices.
 	 */
-	if (tdinfo->filtercond || tbinfo->relkind == RELKIND_FOREIGN_TABLE)
+	if (tdinfo->filtercond || tbinfo->relkind == RELKIND_FOREIGN_TABLE ||
+		(fout->dopt->binary_upgrade && fout->remoteVersion < 120000 &&
+		 tbinfo->dobj.catId.oid == LargeObjectMetadataRelationId))
 	{
 		/* Temporary allows to access to foreign tables to dump data */
 		if (tbinfo->relkind == RELKIND_FOREIGN_TABLE)
@@ -2620,7 +2606,7 @@ dumpTableData_insert(Archive *fout, const void *dcontext)
 	 * actual column value --- but we can save a few cycles by fetching nulls
 	 * rather than the uninteresting-to-us value.
 	 */
-	attgenerated = (char *) pg_malloc(tbinfo->numatts * sizeof(char));
+	attgenerated = pg_malloc_array(char, tbinfo->numatts);
 	appendPQExpBufferStr(q, "DECLARE _pg_dump_cursor CURSOR FOR SELECT ");
 	nfields = 0;
 	for (i = 0; i < tbinfo->numatts; i++)
@@ -3155,7 +3141,7 @@ makeTableDataInfo(DumpOptions *dopt, TableInfo *tbinfo)
 		return;
 
 	/* OK, let's dump it */
-	tdinfo = (TableDataInfo *) pg_malloc(sizeof(TableDataInfo));
+	tdinfo = pg_malloc_object(TableDataInfo);
 
 	if (tbinfo->relkind == RELKIND_MATVIEW)
 		tdinfo->dobj.objType = DO_REFRESH_MATVIEW;
@@ -4053,7 +4039,24 @@ getLOs(Archive *fout)
 	appendPQExpBufferStr(loQry,
 						 "SELECT oid, lomowner, lomacl, "
 						 "acldefault('L', lomowner) AS acldefault "
-						 "FROM pg_largeobject_metadata "
+						 "FROM pg_largeobject_metadata ");
+
+	/*
+	 * For binary upgrades, we transfer pg_largeobject_metadata via COPY or by
+	 * copying/linking its files from the old cluster.  On such upgrades, we
+	 * only need to consider large objects that have comments or security
+	 * labels, since we still restore those objects via COMMENT/SECURITY LABEL
+	 * commands.
+	 */
+	if (dopt->binary_upgrade)
+		appendPQExpBufferStr(loQry,
+							 "WHERE oid IN "
+							 "(SELECT objoid FROM pg_description "
+							 "WHERE classoid = " CppAsString2(LargeObjectRelationId) " "
+							 "UNION SELECT objoid FROM pg_seclabel "
+							 "WHERE classoid = " CppAsString2(LargeObjectRelationId) ") ");
+
+	appendPQExpBufferStr(loQry,
 						 "ORDER BY lomowner, lomacl::pg_catalog.text, oid");
 
 	res = ExecuteSqlQuery(fout, loQry->data, PGRES_TUPLES_OK);
@@ -4134,54 +4137,26 @@ getLOs(Archive *fout)
 			loinfo->dobj.components |= DUMP_COMPONENT_ACL;
 
 		/*
-		 * In binary-upgrade mode for LOs, we do *not* dump out the LO data,
-		 * as it will be copied by pg_upgrade, which simply copies the
-		 * pg_largeobject table. We *do* however dump out anything but the
-		 * data, as pg_upgrade copies just pg_largeobject, but not
-		 * pg_largeobject_metadata, after the dump is restored.  In versions
-		 * before v12, this is done via proper large object commands.  In
-		 * newer versions, we dump the content of pg_largeobject_metadata and
-		 * any associated pg_shdepend rows, which is faster to restore.  (On
-		 * <v12, pg_largeobject_metadata was created WITH OIDS, so the OID
-		 * column is hidden and won't be dumped.)
+		 * In binary upgrade mode, pg_largeobject and pg_largeobject_metadata
+		 * are transferred via COPY or by copying/linking the files from the
+		 * old cluster.  Thus, we do not need to dump LO data, definitions, or
+		 * ACLs.
 		 */
 		if (dopt->binary_upgrade)
-		{
-			if (fout->remoteVersion >= 120000)
-			{
-				/*
-				 * We should've saved pg_largeobject_metadata's dump ID before
-				 * this point.
-				 */
-				Assert(lo_metadata_dumpId);
-
-				loinfo->dobj.dump &= ~(DUMP_COMPONENT_DATA | DUMP_COMPONENT_ACL | DUMP_COMPONENT_DEFINITION);
-
-				/*
-				 * Mark the large object as dependent on
-				 * pg_largeobject_metadata so that any large object
-				 * comments/seclables are dumped after it.
-				 */
-				loinfo->dobj.dependencies = (DumpId *) pg_malloc(sizeof(DumpId));
-				loinfo->dobj.dependencies[0] = lo_metadata_dumpId;
-				loinfo->dobj.nDeps = loinfo->dobj.allocDeps = 1;
-			}
-			else
-				loinfo->dobj.dump &= ~DUMP_COMPONENT_DATA;
-		}
+			loinfo->dobj.dump &= ~(DUMP_COMPONENT_DATA | DUMP_COMPONENT_ACL | DUMP_COMPONENT_DEFINITION);
 
 		/*
 		 * Create a "BLOBS" data item for the group, too. This is just a
 		 * placeholder for sorting; it carries no data now.
 		 */
-		lodata = (DumpableObject *) pg_malloc(sizeof(DumpableObject));
+		lodata = pg_malloc_object(DumpableObject);
 		lodata->objType = DO_LARGE_OBJECT_DATA;
 		lodata->catId = nilCatalogId;
 		AssignDumpId(lodata);
 		lodata->name = pg_strdup(namebuf);
 		lodata->components |= DUMP_COMPONENT_DATA;
 		/* Set up explicit dependency from data to metadata */
-		lodata->dependencies = (DumpId *) pg_malloc(sizeof(DumpId));
+		lodata->dependencies = pg_malloc_object(DumpId);
 		lodata->dependencies[0] = loinfo->dobj.dumpId;
 		lodata->nDeps = lodata->allocDeps = 1;
 	}
@@ -4397,7 +4372,7 @@ getPolicies(Archive *fout, TableInfo tblinfo[], int numTables)
 			 * Note: use tableoid 0 so that this object won't be mistaken for
 			 * something that pg_depend entries apply to.
 			 */
-			polinfo = pg_malloc(sizeof(PolicyInfo));
+			polinfo = pg_malloc_object(PolicyInfo);
 			polinfo->dobj.objType = DO_POLICY;
 			polinfo->dobj.catId.tableoid = 0;
 			polinfo->dobj.catId.oid = tbinfo->dobj.catId.oid;
@@ -4453,7 +4428,7 @@ getPolicies(Archive *fout, TableInfo tblinfo[], int numTables)
 		i_polqual = PQfnumber(res, "polqual");
 		i_polwithcheck = PQfnumber(res, "polwithcheck");
 
-		polinfo = pg_malloc(ntups * sizeof(PolicyInfo));
+		polinfo = pg_malloc_array(PolicyInfo, ntups);
 
 		for (j = 0; j < ntups; j++)
 		{
@@ -4695,7 +4670,7 @@ getPublications(Archive *fout)
 	i_pubviaroot = PQfnumber(res, "pubviaroot");
 	i_pubgencols = PQfnumber(res, "pubgencols");
 
-	pubinfo = pg_malloc(ntups * sizeof(PublicationInfo));
+	pubinfo = pg_malloc_array(PublicationInfo, ntups);
 
 	for (i = 0; i < ntups; i++)
 	{
@@ -4874,7 +4849,7 @@ getPublicationNamespaces(Archive *fout)
 	i_pnnspid = PQfnumber(res, "pnnspid");
 
 	/* this allocation may be more than we need */
-	pubsinfo = pg_malloc(ntups * sizeof(PublicationSchemaInfo));
+	pubsinfo = pg_malloc_array(PublicationSchemaInfo, ntups);
 	j = 0;
 
 	for (i = 0; i < ntups; i++)
@@ -4973,7 +4948,7 @@ getPublicationTables(Archive *fout, TableInfo tblinfo[], int numTables)
 	i_prattrs = PQfnumber(res, "prattrs");
 
 	/* this allocation may be more than we need */
-	pubrinfo = pg_malloc(ntups * sizeof(PublicationRelInfo));
+	pubrinfo = pg_malloc_array(PublicationRelInfo, ntups);
 	j = 0;
 
 	for (i = 0; i < ntups; i++)
@@ -5211,6 +5186,7 @@ getSubscriptions(Archive *fout)
 	int			i_subconninfo;
 	int			i_subslotname;
 	int			i_subsynccommit;
+	int			i_subwalrcvtimeout;
 	int			i_subpublications;
 	int			i_suborigin;
 	int			i_suboriginremotelsn;
@@ -5304,10 +5280,17 @@ getSubscriptions(Archive *fout)
 
 	if (fout->remoteVersion >= 190000)
 		appendPQExpBufferStr(query,
-							 " s.submaxretention\n");
+							 " s.submaxretention,\n");
 	else
 		appendPQExpBuffer(query,
-						  " 0 AS submaxretention\n");
+						  " 0 AS submaxretention,\n");
+
+	if (fout->remoteVersion >= 190000)
+		appendPQExpBufferStr(query,
+							 " s.subwalrcvtimeout\n");
+	else
+		appendPQExpBufferStr(query,
+							 " '-1' AS subwalrcvtimeout\n");
 
 	appendPQExpBufferStr(query,
 						 "FROM pg_subscription s\n");
@@ -5346,11 +5329,12 @@ getSubscriptions(Archive *fout)
 	i_subconninfo = PQfnumber(res, "subconninfo");
 	i_subslotname = PQfnumber(res, "subslotname");
 	i_subsynccommit = PQfnumber(res, "subsynccommit");
+	i_subwalrcvtimeout = PQfnumber(res, "subwalrcvtimeout");
 	i_subpublications = PQfnumber(res, "subpublications");
 	i_suborigin = PQfnumber(res, "suborigin");
 	i_suboriginremotelsn = PQfnumber(res, "suboriginremotelsn");
 
-	subinfo = pg_malloc(ntups * sizeof(SubscriptionInfo));
+	subinfo = pg_malloc_array(SubscriptionInfo, ntups);
 
 	for (i = 0; i < ntups; i++)
 	{
@@ -5389,6 +5373,8 @@ getSubscriptions(Archive *fout)
 				pg_strdup(PQgetvalue(res, i, i_subslotname));
 		subinfo[i].subsynccommit =
 			pg_strdup(PQgetvalue(res, i, i_subsynccommit));
+		subinfo[i].subwalrcvtimeout =
+			pg_strdup(PQgetvalue(res, i, i_subwalrcvtimeout));
 		subinfo[i].subpublications =
 			pg_strdup(PQgetvalue(res, i, i_subpublications));
 		subinfo[i].suborigin = pg_strdup(PQgetvalue(res, i, i_suborigin));
@@ -5444,7 +5430,7 @@ getSubscriptionRelations(Archive *fout)
 	i_srsubstate = PQfnumber(res, "srsubstate");
 	i_srsublsn = PQfnumber(res, "srsublsn");
 
-	subrinfo = pg_malloc(ntups * sizeof(SubRelInfo));
+	subrinfo = pg_malloc_array(SubRelInfo, ntups);
 	for (int i = 0; i < ntups; i++)
 	{
 		Oid			cur_srsubid = atooid(PQgetvalue(res, i, i_srsubid));
@@ -5646,6 +5632,9 @@ dumpSubscription(Archive *fout, const SubscriptionInfo *subinfo)
 
 	if (strcmp(subinfo->subsynccommit, "off") != 0)
 		appendPQExpBuffer(query, ", synchronous_commit = %s", fmtId(subinfo->subsynccommit));
+
+	if (strcmp(subinfo->subwalrcvtimeout, "-1") != 0)
+		appendPQExpBuffer(query, ", wal_receiver_timeout = %s", fmtId(subinfo->subwalrcvtimeout));
 
 	if (pg_strcasecmp(subinfo->suborigin, LOGICALREP_ORIGIN_ANY) != 0)
 		appendPQExpBuffer(query, ", origin = %s", subinfo->suborigin);
@@ -5924,8 +5913,8 @@ collectBinaryUpgradeClassOids(Archive *fout)
 	res = ExecuteSqlQuery(fout, query, PGRES_TUPLES_OK);
 
 	nbinaryUpgradeClassOids = PQntuples(res);
-	binaryUpgradeClassOids = (BinaryUpgradeClassOidItem *)
-		pg_malloc(nbinaryUpgradeClassOids * sizeof(BinaryUpgradeClassOidItem));
+	binaryUpgradeClassOids =
+		pg_malloc_array(BinaryUpgradeClassOidItem, nbinaryUpgradeClassOids);
 
 	for (int i = 0; i < nbinaryUpgradeClassOids; i++)
 	{
@@ -6106,7 +6095,7 @@ getNamespaces(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	nsinfo = (NamespaceInfo *) pg_malloc(ntups * sizeof(NamespaceInfo));
+	nsinfo = pg_malloc_array(NamespaceInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -6239,7 +6228,7 @@ getExtensions(Archive *fout, int *numExtensions)
 	if (ntups == 0)
 		goto cleanup;
 
-	extinfo = (ExtensionInfo *) pg_malloc(ntups * sizeof(ExtensionInfo));
+	extinfo = pg_malloc_array(ExtensionInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -6339,7 +6328,7 @@ getTypes(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	tyinfo = (TypeInfo *) pg_malloc(ntups * sizeof(TypeInfo));
+	tyinfo = pg_malloc_array(TypeInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -6425,7 +6414,7 @@ getTypes(Archive *fout)
 			(tyinfo[i].typtype == TYPTYPE_BASE ||
 			 tyinfo[i].typtype == TYPTYPE_RANGE))
 		{
-			stinfo = (ShellTypeInfo *) pg_malloc(sizeof(ShellTypeInfo));
+			stinfo = pg_malloc_object(ShellTypeInfo);
 			stinfo->dobj.objType = DO_SHELL_TYPE;
 			stinfo->dobj.catId = nilCatalogId;
 			AssignDumpId(&stinfo->dobj);
@@ -6488,7 +6477,7 @@ getOperators(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	oprinfo = (OprInfo *) pg_malloc(ntups * sizeof(OprInfo));
+	oprinfo = pg_malloc_array(OprInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -6560,7 +6549,7 @@ getCollations(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	collinfo = (CollInfo *) pg_malloc(ntups * sizeof(CollInfo));
+	collinfo = pg_malloc_array(CollInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -6624,7 +6613,7 @@ getConversions(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	convinfo = (ConvInfo *) pg_malloc(ntups * sizeof(ConvInfo));
+	convinfo = pg_malloc_array(ConvInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -6697,7 +6686,7 @@ getAccessMethods(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	aminfo = (AccessMethodInfo *) pg_malloc(ntups * sizeof(AccessMethodInfo));
+	aminfo = pg_malloc_array(AccessMethodInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -6759,7 +6748,7 @@ getOpclasses(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	opcinfo = (OpclassInfo *) pg_malloc(ntups * sizeof(OpclassInfo));
+	opcinfo = pg_malloc_array(OpclassInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -6824,7 +6813,7 @@ getOpfamilies(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	opfinfo = (OpfamilyInfo *) pg_malloc(ntups * sizeof(OpfamilyInfo));
+	opfinfo = pg_malloc_array(OpfamilyInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -6942,7 +6931,7 @@ getAggregates(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	agginfo = (AggInfo *) pg_malloc(ntups * sizeof(AggInfo));
+	agginfo = pg_malloc_array(AggInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -6975,7 +6964,7 @@ getAggregates(Archive *fout)
 			agginfo[i].aggfn.argtypes = NULL;
 		else
 		{
-			agginfo[i].aggfn.argtypes = (Oid *) pg_malloc(agginfo[i].aggfn.nargs * sizeof(Oid));
+			agginfo[i].aggfn.argtypes = pg_malloc_array(Oid, agginfo[i].aggfn.nargs);
 			parseOidArray(PQgetvalue(res, i, i_proargtypes),
 						  agginfo[i].aggfn.argtypes,
 						  agginfo[i].aggfn.nargs);
@@ -7133,7 +7122,7 @@ getFuncs(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	finfo = (FuncInfo *) pg_malloc0(ntups * sizeof(FuncInfo));
+	finfo = pg_malloc0_array(FuncInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -7168,7 +7157,7 @@ getFuncs(Archive *fout)
 			finfo[i].argtypes = NULL;
 		else
 		{
-			finfo[i].argtypes = (Oid *) pg_malloc(finfo[i].nargs * sizeof(Oid));
+			finfo[i].argtypes = pg_malloc_array(Oid, finfo[i].nargs);
 			parseOidArray(PQgetvalue(res, i, i_proargtypes),
 						  finfo[i].argtypes, finfo[i].nargs);
 		}
@@ -7211,14 +7200,14 @@ getRelationStatistics(Archive *fout, DumpableObject *rel, int32 relpages,
 		(relkind == RELKIND_MATVIEW ||
 		 relkind == RELKIND_FOREIGN_TABLE))
 	{
-		RelStatsInfo *info = pg_malloc0(sizeof(RelStatsInfo));
+		RelStatsInfo *info = pg_malloc0_object(RelStatsInfo);
 		DumpableObject *dobj = &info->dobj;
 
 		dobj->objType = DO_REL_STATS;
 		dobj->catId.tableoid = 0;
 		dobj->catId.oid = 0;
 		AssignDumpId(dobj);
-		dobj->dependencies = (DumpId *) pg_malloc(sizeof(DumpId));
+		dobj->dependencies = pg_malloc_object(DumpId);
 		dobj->dependencies[0] = rel->dumpId;
 		dobj->nDeps = 1;
 		dobj->allocDeps = 1;
@@ -7503,7 +7492,7 @@ getTables(Archive *fout, int *numTables)
 	 * only one, because we don't yet know which tables might be inheritance
 	 * ancestors of the target table.
 	 */
-	tblinfo = (TableInfo *) pg_malloc0(ntups * sizeof(TableInfo));
+	tblinfo = pg_malloc0_array(TableInfo, ntups);
 
 	i_reltableoid = PQfnumber(res, "tableoid");
 	i_reloid = PQfnumber(res, "oid");
@@ -7837,7 +7826,7 @@ getInherits(Archive *fout, int *numInherits)
 
 	*numInherits = ntups;
 
-	inhinfo = (InhInfo *) pg_malloc(ntups * sizeof(InhInfo));
+	inhinfo = pg_malloc_array(InhInfo, ntups);
 
 	i_inhrelid = PQfnumber(res, "inhrelid");
 	i_inhparent = PQfnumber(res, "inhparent");
@@ -8149,7 +8138,7 @@ getIndexes(Archive *fout, TableInfo tblinfo[], int numTables)
 	i_indstatcols = PQfnumber(res, "indstatcols");
 	i_indstatvals = PQfnumber(res, "indstatvals");
 
-	indxinfo = (IndxInfo *) pg_malloc(ntups * sizeof(IndxInfo));
+	indxinfo = pg_malloc_array(IndxInfo, ntups);
 
 	/*
 	 * Outer loop iterates once per table, not once per row.  Incrementing of
@@ -8215,7 +8204,7 @@ getIndexes(Archive *fout, TableInfo tblinfo[], int numTables)
 			indxinfo[j].indreloptions = pg_strdup(PQgetvalue(res, j, i_indreloptions));
 			indxinfo[j].indstatcols = pg_strdup(PQgetvalue(res, j, i_indstatcols));
 			indxinfo[j].indstatvals = pg_strdup(PQgetvalue(res, j, i_indstatvals));
-			indxinfo[j].indkeys = (Oid *) pg_malloc(indxinfo[j].indnattrs * sizeof(Oid));
+			indxinfo[j].indkeys = pg_malloc_array(Oid, indxinfo[j].indnattrs);
 			parseOidArray(PQgetvalue(res, j, i_indkey),
 						  indxinfo[j].indkeys, indxinfo[j].indnattrs);
 			indxinfo[j].indisclustered = (PQgetvalue(res, j, i_indisclustered)[0] == 't');
@@ -8253,7 +8242,7 @@ getIndexes(Archive *fout, TableInfo tblinfo[], int numTables)
 				 */
 				ConstraintInfo *constrinfo;
 
-				constrinfo = (ConstraintInfo *) pg_malloc(sizeof(ConstraintInfo));
+				constrinfo = pg_malloc_object(ConstraintInfo);
 				constrinfo->dobj.objType = DO_CONSTRAINT;
 				constrinfo->dobj.catId.tableoid = atooid(PQgetvalue(res, j, i_contableoid));
 				constrinfo->dobj.catId.oid = atooid(PQgetvalue(res, j, i_conoid));
@@ -8346,7 +8335,7 @@ getExtendedStatistics(Archive *fout)
 	i_stxrelid = PQfnumber(res, "stxrelid");
 	i_stattarget = PQfnumber(res, "stxstattarget");
 
-	statsextinfo = (StatsExtInfo *) pg_malloc(ntups * sizeof(StatsExtInfo));
+	statsextinfo = pg_malloc_array(StatsExtInfo, ntups);
 
 	for (i = 0; i < ntups; i++)
 	{
@@ -8457,7 +8446,7 @@ getConstraints(Archive *fout, TableInfo tblinfo[], int numTables)
 	i_conindid = PQfnumber(res, "conindid");
 	i_condef = PQfnumber(res, "condef");
 
-	constrinfo = (ConstraintInfo *) pg_malloc(ntups * sizeof(ConstraintInfo));
+	constrinfo = pg_malloc_array(ConstraintInfo, ntups);
 
 	curtblindx = -1;
 	for (int j = 0; j < ntups; j++)
@@ -8618,7 +8607,7 @@ getDomainConstraints(Archive *fout, TypeInfo *tyinfo)
 	i_convalidated = PQfnumber(res, "convalidated");
 	i_contype = PQfnumber(res, "contype");
 
-	constrinfo = (ConstraintInfo *) pg_malloc(ntups * sizeof(ConstraintInfo));
+	constrinfo = pg_malloc_array(ConstraintInfo, ntups);
 	tyinfo->domChecks = constrinfo;
 
 	/* 'i' tracks result rows; 'j' counts CHECK constraints */
@@ -8706,7 +8695,7 @@ getRules(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	ruleinfo = (RuleInfo *) pg_malloc(ntups * sizeof(RuleInfo));
+	ruleinfo = pg_malloc_array(RuleInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -8912,7 +8901,7 @@ getTriggers(Archive *fout, TableInfo tblinfo[], int numTables)
 	i_tgispartition = PQfnumber(res, "tgispartition");
 	i_tgdef = PQfnumber(res, "tgdef");
 
-	tginfo = (TriggerInfo *) pg_malloc(ntups * sizeof(TriggerInfo));
+	tginfo = pg_malloc_array(TriggerInfo, ntups);
 
 	/*
 	 * Outer loop iterates once per table, not once per row.  Incrementing of
@@ -9009,7 +8998,7 @@ getEventTriggers(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	evtinfo = (EventTriggerInfo *) pg_malloc(ntups * sizeof(EventTriggerInfo));
+	evtinfo = pg_malloc_array(EventTriggerInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -9083,7 +9072,7 @@ getProcLangs(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	planginfo = (ProcLangInfo *) pg_malloc(ntups * sizeof(ProcLangInfo));
+	planginfo = pg_malloc_array(ProcLangInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -9175,7 +9164,7 @@ getCasts(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	castinfo = (CastInfo *) pg_malloc(ntups * sizeof(CastInfo));
+	castinfo = pg_malloc_array(CastInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -9275,7 +9264,7 @@ getTransforms(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	transforminfo = (TransformInfo *) pg_malloc(ntups * sizeof(TransformInfo));
+	transforminfo = pg_malloc_array(TransformInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -9391,12 +9380,10 @@ getTableAttrs(Archive *fout, TableInfo *tblinfo, int numTables)
 		 * pg_shdepend so that the columns names are collected for the
 		 * corresponding COPY commands.  Restoring the data for those catalogs
 		 * is faster than restoring the equivalent set of large object
-		 * commands.  We can only do this for upgrades from v12 and newer; in
-		 * older versions, pg_largeobject_metadata was created WITH OIDS, so
-		 * the OID column is hidden and won't be dumped.
+		 * commands.
 		 */
 		if (!tbinfo->interesting &&
-			!(fout->dopt->binary_upgrade && fout->remoteVersion >= 120000 &&
+			!(fout->dopt->binary_upgrade &&
 			  (tbinfo->dobj.catId.oid == LargeObjectMetadataRelationId ||
 			   tbinfo->dobj.catId.oid == SharedDependRelationId)))
 			continue;
@@ -9537,7 +9524,18 @@ getTableAttrs(Archive *fout, TableInfo *tblinfo, int numTables)
 							 "(pt.classoid = co.tableoid AND pt.objoid = co.oid)\n");
 
 	appendPQExpBufferStr(q,
-						 "WHERE a.attnum > 0::pg_catalog.int2\n"
+						 "WHERE a.attnum > 0::pg_catalog.int2\n");
+
+	/*
+	 * For binary upgrades from <v12, be sure to pick up
+	 * pg_largeobject_metadata's oid column.
+	 */
+	if (fout->dopt->binary_upgrade && fout->remoteVersion < 120000)
+		appendPQExpBufferStr(q,
+							 "OR (a.attnum = -2::pg_catalog.int2 AND src.tbloid = "
+							 CppAsString2(LargeObjectMetadataRelationId) ")\n");
+
+	appendPQExpBufferStr(q,
 						 "ORDER BY a.attrelid, a.attnum");
 
 	res = ExecuteSqlQuery(fout, q->data, PGRES_TUPLES_OK);
@@ -9605,7 +9603,7 @@ getTableAttrs(Archive *fout, TableInfo *tblinfo, int numTables)
 		/* cross-check that we only got requested tables */
 		if (tbinfo->relkind == RELKIND_SEQUENCE ||
 			(!tbinfo->interesting &&
-			 !(fout->dopt->binary_upgrade && fout->remoteVersion >= 120000 &&
+			 !(fout->dopt->binary_upgrade &&
 			   (tbinfo->dobj.catId.oid == LargeObjectMetadataRelationId ||
 				tbinfo->dobj.catId.oid == SharedDependRelationId))))
 			pg_fatal("unexpected column data for table \"%s\"",
@@ -9613,33 +9611,35 @@ getTableAttrs(Archive *fout, TableInfo *tblinfo, int numTables)
 
 		/* Save data for this table */
 		tbinfo->numatts = numatts;
-		tbinfo->attnames = (char **) pg_malloc(numatts * sizeof(char *));
-		tbinfo->atttypnames = (char **) pg_malloc(numatts * sizeof(char *));
-		tbinfo->attstattarget = (int *) pg_malloc(numatts * sizeof(int));
-		tbinfo->attstorage = (char *) pg_malloc(numatts * sizeof(char));
-		tbinfo->typstorage = (char *) pg_malloc(numatts * sizeof(char));
-		tbinfo->attidentity = (char *) pg_malloc(numatts * sizeof(char));
-		tbinfo->attgenerated = (char *) pg_malloc(numatts * sizeof(char));
-		tbinfo->attisdropped = (bool *) pg_malloc(numatts * sizeof(bool));
-		tbinfo->attlen = (int *) pg_malloc(numatts * sizeof(int));
-		tbinfo->attalign = (char *) pg_malloc(numatts * sizeof(char));
-		tbinfo->attislocal = (bool *) pg_malloc(numatts * sizeof(bool));
-		tbinfo->attoptions = (char **) pg_malloc(numatts * sizeof(char *));
-		tbinfo->attcollation = (Oid *) pg_malloc(numatts * sizeof(Oid));
-		tbinfo->attcompression = (char *) pg_malloc(numatts * sizeof(char));
-		tbinfo->attfdwoptions = (char **) pg_malloc(numatts * sizeof(char *));
-		tbinfo->attmissingval = (char **) pg_malloc(numatts * sizeof(char *));
-		tbinfo->notnull_constrs = (char **) pg_malloc(numatts * sizeof(char *));
-		tbinfo->notnull_comment = (char **) pg_malloc(numatts * sizeof(char *));
-		tbinfo->notnull_invalid = (bool *) pg_malloc(numatts * sizeof(bool));
-		tbinfo->notnull_noinh = (bool *) pg_malloc(numatts * sizeof(bool));
-		tbinfo->notnull_islocal = (bool *) pg_malloc(numatts * sizeof(bool));
-		tbinfo->attrdefs = (AttrDefInfo **) pg_malloc(numatts * sizeof(AttrDefInfo *));
+		tbinfo->attnames = pg_malloc_array(char *, numatts);
+		tbinfo->atttypnames = pg_malloc_array(char *, numatts);
+		tbinfo->attstattarget = pg_malloc_array(int, numatts);
+		tbinfo->attstorage = pg_malloc_array(char, numatts);
+		tbinfo->typstorage = pg_malloc_array(char, numatts);
+		tbinfo->attidentity = pg_malloc_array(char, numatts);
+		tbinfo->attgenerated = pg_malloc_array(char, numatts);
+		tbinfo->attisdropped = pg_malloc_array(bool, numatts);
+		tbinfo->attlen = pg_malloc_array(int, numatts);
+		tbinfo->attalign = pg_malloc_array(char, numatts);
+		tbinfo->attislocal = pg_malloc_array(bool, numatts);
+		tbinfo->attoptions = pg_malloc_array(char *, numatts);
+		tbinfo->attcollation = pg_malloc_array(Oid, numatts);
+		tbinfo->attcompression = pg_malloc_array(char, numatts);
+		tbinfo->attfdwoptions = pg_malloc_array(char *, numatts);
+		tbinfo->attmissingval = pg_malloc_array(char *, numatts);
+		tbinfo->notnull_constrs = pg_malloc_array(char *, numatts);
+		tbinfo->notnull_comment = pg_malloc_array(char *, numatts);
+		tbinfo->notnull_invalid = pg_malloc_array(bool, numatts);
+		tbinfo->notnull_noinh = pg_malloc_array(bool, numatts);
+		tbinfo->notnull_islocal = pg_malloc_array(bool, numatts);
+		tbinfo->attrdefs = pg_malloc_array(AttrDefInfo *, numatts);
 		hasdefaults = false;
 
 		for (int j = 0; j < numatts; j++, r++)
 		{
-			if (j + 1 != atoi(PQgetvalue(res, r, i_attnum)))
+			if (j + 1 != atoi(PQgetvalue(res, r, i_attnum)) &&
+				!(fout->dopt->binary_upgrade && fout->remoteVersion < 120000 &&
+				  tbinfo->dobj.catId.oid == LargeObjectMetadataRelationId))
 				pg_fatal("invalid column numbering in table \"%s\"",
 						 tbinfo->dobj.name);
 			tbinfo->attnames[j] = pg_strdup(PQgetvalue(res, r, i_attname));
@@ -9719,7 +9719,7 @@ getTableAttrs(Archive *fout, TableInfo *tblinfo, int numTables)
 		res = ExecuteSqlQuery(fout, q->data, PGRES_TUPLES_OK);
 
 		numDefaults = PQntuples(res);
-		attrdefs = (AttrDefInfo *) pg_malloc(numDefaults * sizeof(AttrDefInfo));
+		attrdefs = pg_malloc_array(AttrDefInfo, numDefaults);
 
 		curtblindx = -1;
 		for (int j = 0; j < numDefaults; j++)
@@ -9858,7 +9858,7 @@ getTableAttrs(Archive *fout, TableInfo *tblinfo, int numTables)
 		res = ExecuteSqlQuery(fout, q->data, PGRES_TUPLES_OK);
 
 		numConstrs = PQntuples(res);
-		constrs = (ConstraintInfo *) pg_malloc(numConstrs * sizeof(ConstraintInfo));
+		constrs = pg_malloc_array(ConstraintInfo, numConstrs);
 
 		i_tableoid = PQfnumber(res, "tableoid");
 		i_oid = PQfnumber(res, "oid");
@@ -9957,7 +9957,7 @@ getTableAttrs(Archive *fout, TableInfo *tblinfo, int numTables)
 		res = ExecuteSqlQuery(fout, q->data, PGRES_TUPLES_OK);
 
 		numConstrs = PQntuples(res);
-		constrs = (ConstraintInfo *) pg_malloc(numConstrs * sizeof(ConstraintInfo));
+		constrs = pg_malloc_array(ConstraintInfo, numConstrs);
 
 		i_tableoid = PQfnumber(res, "tableoid");
 		i_oid = PQfnumber(res, "oid");
@@ -10285,7 +10285,7 @@ getTSParsers(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	prsinfo = (TSParserInfo *) pg_malloc(ntups * sizeof(TSParserInfo));
+	prsinfo = pg_malloc_array(TSParserInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -10352,7 +10352,7 @@ getTSDictionaries(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	dictinfo = (TSDictInfo *) pg_malloc(ntups * sizeof(TSDictInfo));
+	dictinfo = pg_malloc_array(TSDictInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -10416,7 +10416,7 @@ getTSTemplates(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	tmplinfo = (TSTemplateInfo *) pg_malloc(ntups * sizeof(TSTemplateInfo));
+	tmplinfo = pg_malloc_array(TSTemplateInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -10475,7 +10475,7 @@ getTSConfigurations(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	cfginfo = (TSConfigInfo *) pg_malloc(ntups * sizeof(TSConfigInfo));
+	cfginfo = pg_malloc_array(TSConfigInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -10547,7 +10547,7 @@ getForeignDataWrappers(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	fdwinfo = (FdwInfo *) pg_malloc(ntups * sizeof(FdwInfo));
+	fdwinfo = pg_malloc_array(FdwInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -10630,7 +10630,7 @@ getForeignServers(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	srvinfo = (ForeignServerInfo *) pg_malloc(ntups * sizeof(ForeignServerInfo));
+	srvinfo = pg_malloc_array(ForeignServerInfo, ntups);
 
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_oid = PQfnumber(res, "oid");
@@ -10728,7 +10728,7 @@ getDefaultACLs(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	daclinfo = (DefaultACLInfo *) pg_malloc(ntups * sizeof(DefaultACLInfo));
+	daclinfo = pg_malloc_array(DefaultACLInfo, ntups);
 
 	i_oid = PQfnumber(res, "oid");
 	i_tableoid = PQfnumber(res, "tableoid");
@@ -10827,7 +10827,7 @@ collectRoleNames(Archive *fout)
 
 	nrolenames = PQntuples(res);
 
-	rolenames = (RoleNameItem *) pg_malloc(nrolenames * sizeof(RoleNameItem));
+	rolenames = pg_malloc_array(RoleNameItem, nrolenames);
 
 	for (i = 0; i < nrolenames; i++)
 	{
@@ -11704,7 +11704,7 @@ collectComments(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	comments = (CommentItem *) pg_malloc(ntups * sizeof(CommentItem));
+	comments = pg_malloc_array(CommentItem, ntups);
 	ncomments = 0;
 	dobj = NULL;
 
@@ -13796,7 +13796,7 @@ dumpFunc(Archive *fout, const FuncInfo *finfo)
 
 	if (*protrftypes)
 	{
-		Oid		   *typeids = pg_malloc(FUNC_MAX_ARGS * sizeof(Oid));
+		Oid		   *typeids = pg_malloc_array(Oid, FUNC_MAX_ARGS);
 		int			i;
 
 		appendPQExpBufferStr(q, " TRANSFORM ");
@@ -16932,7 +16932,7 @@ collectSecLabels(Archive *fout)
 
 	ntups = PQntuples(res);
 
-	seclabels = (SecLabelItem *) pg_malloc(ntups * sizeof(SecLabelItem));
+	seclabels = pg_malloc_array(SecLabelItem, ntups);
 	nseclabels = 0;
 	dobj = NULL;
 
@@ -19318,7 +19318,7 @@ collectSequences(Archive *fout)
 	res = ExecuteSqlQuery(fout, query, PGRES_TUPLES_OK);
 
 	nsequences = PQntuples(res);
-	sequences = (SequenceItem *) pg_malloc(nsequences * sizeof(SequenceItem));
+	sequences = pg_malloc_array(SequenceItem, nsequences);
 
 	for (int i = 0; i < nsequences; i++)
 	{
@@ -19396,7 +19396,7 @@ dumpSequence(Archive *fout, const TableInfo *tbinfo)
 							  PQntuples(res)),
 					 tbinfo->dobj.name, PQntuples(res));
 
-		seq = pg_malloc0(sizeof(SequenceItem));
+		seq = pg_malloc0_object(SequenceItem);
 		seq->seqtype = parse_sequence_type(PQgetvalue(res, 0, 0));
 		seq->startv = strtoi64(PQgetvalue(res, 0, 1), NULL, 10);
 		seq->incby = strtoi64(PQgetvalue(res, 0, 2), NULL, 10);
@@ -20509,7 +20509,7 @@ createBoundaryObjects(void)
 {
 	DumpableObject *dobjs;
 
-	dobjs = (DumpableObject *) pg_malloc(2 * sizeof(DumpableObject));
+	dobjs = pg_malloc_array(DumpableObject, 2);
 
 	dobjs[0].objType = DO_PRE_DATA_BOUNDARY;
 	dobjs[0].catId = nilCatalogId;
@@ -20683,7 +20683,7 @@ BuildArchiveDependencies(Archive *fout)
 			continue;
 		/* Set up work array */
 		allocDeps = 64;
-		dependencies = (DumpId *) pg_malloc(allocDeps * sizeof(DumpId));
+		dependencies = pg_malloc_array(DumpId, allocDeps);
 		nDeps = 0;
 		/* Recursively find all dumpable dependencies */
 		findDumpableDependencies(AH, dobj,
@@ -20691,8 +20691,7 @@ BuildArchiveDependencies(Archive *fout)
 		/* And save 'em ... */
 		if (nDeps > 0)
 		{
-			dependencies = (DumpId *) pg_realloc(dependencies,
-												 nDeps * sizeof(DumpId));
+			dependencies = pg_realloc_array(dependencies, DumpId, nDeps);
 			te->dependencies = dependencies;
 			te->nDeps = nDeps;
 		}
@@ -20726,8 +20725,7 @@ findDumpableDependencies(ArchiveHandle *AH, const DumpableObject *dobj,
 			if (*nDeps >= *allocDeps)
 			{
 				*allocDeps *= 2;
-				*dependencies = (DumpId *) pg_realloc(*dependencies,
-													  *allocDeps * sizeof(DumpId));
+				*dependencies = pg_realloc_array(*dependencies, DumpId, *allocDeps);
 			}
 			(*dependencies)[*nDeps] = depid;
 			(*nDeps)++;
