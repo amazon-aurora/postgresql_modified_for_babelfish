@@ -322,7 +322,6 @@ my %pgdump_runs = (
 			'--file' => "$tempdir/pg_dumpall_globals.sql",
 			'--globals-only',
 			'--no-sync',
-			'--statistics',
 		],
 	},
 	pg_dumpall_globals_clean => {
@@ -332,7 +331,6 @@ my %pgdump_runs = (
 			'--globals-only',
 			'--clean',
 			'--no-sync',
-			'--statistics',
 		],
 	},
 	pg_dumpall_dbprivs => {
@@ -1060,6 +1058,43 @@ my %tests = (
 		\QCREATE TABLE dump_test.test_table_nn_chld3 (\E\n
 		^\Q)\E$
 		/xm,
+		like => {
+			%full_runs, %dump_test_schema_runs, section_pre_data => 1,
+		},
+		unlike => {
+			exclude_dump_test_schema => 1,
+			only_dump_measurement => 1,
+			binary_upgrade => 1,
+		},
+	},
+
+	'CONSTRAINT NOT NULL / NO INHERIT' => {
+		create_sql => 'CREATE TABLE dump_test.test_table_nonn (
+		col1 int NOT NULL NO INHERIT,
+		col2 int);
+		CREATE TABLE dump_test.test_table_nonn_chld1 (
+		   CONSTRAINT nn NOT NULL col2 NO INHERIT)
+		INHERITS (dump_test.test_table_nonn); ',
+		regexp => qr/^
+			\QCREATE TABLE dump_test.test_table_nonn (\E \n^\s+
+			\Qcol1 integer NOT NULL NO INHERIT\E
+			/xm,
+		like => {
+			%full_runs, %dump_test_schema_runs,
+			section_pre_data => 1,
+			binary_upgrade => 1,
+		},
+		unlike => {
+			exclude_dump_test_schema => 1,
+			only_dump_measurement => 1,
+		},
+	},
+
+	'CONSTRAINT NOT NULL / NO INHERIT (child1)' => {
+		regexp => qr/^
+			\QCREATE TABLE dump_test.test_table_nonn_chld1 (\E \n^\s+
+			\QCONSTRAINT nn NOT NULL col2 NO INHERIT\E
+			/xm,
 		like => {
 			%full_runs, %dump_test_schema_runs, section_pre_data => 1,
 		},
@@ -3165,6 +3200,36 @@ my %tests = (
 		like => { %full_runs, section_post_data => 1, },
 	},
 
+	'CREATE PUBLICATION pub8' => {
+		create_order => 50,
+		create_sql =>
+		  'CREATE PUBLICATION pub8 FOR ALL TABLES EXCEPT TABLE (dump_test.test_table);',
+		regexp => qr/^
+			\QCREATE PUBLICATION pub8 FOR ALL TABLES EXCEPT TABLE (ONLY dump_test.test_table) WITH (publish = 'insert, update, delete, truncate');\E
+			/xm,
+		like => { %full_runs, section_post_data => 1, },
+	},
+
+	'CREATE PUBLICATION pub9' => {
+		create_order => 50,
+		create_sql =>
+		  'CREATE PUBLICATION pub9 FOR ALL TABLES EXCEPT TABLE (dump_test.test_table, dump_test.test_second_table);',
+		regexp => qr/^
+			\QCREATE PUBLICATION pub9 FOR ALL TABLES EXCEPT TABLE (ONLY dump_test.test_table, ONLY dump_test.test_second_table) WITH (publish = 'insert, update, delete, truncate');\E
+			/xm,
+		like => { %full_runs, section_post_data => 1, },
+	},
+
+	'CREATE PUBLICATION pub10' => {
+		create_order => 92,
+		create_sql =>
+		  'CREATE PUBLICATION pub10 FOR ALL TABLES EXCEPT TABLE (dump_test.test_inheritance_parent);',
+		regexp => qr/^
+			\QCREATE PUBLICATION pub10 FOR ALL TABLES EXCEPT TABLE (ONLY dump_test.test_inheritance_parent, ONLY dump_test.test_inheritance_child) WITH (publish = 'insert, update, delete, truncate');\E
+			/xm,
+		like => { %full_runs, section_post_data => 1, },
+	},
+
 	'CREATE SUBSCRIPTION sub1' => {
 		create_order => 50,
 		create_sql => 'CREATE SUBSCRIPTION sub1
@@ -5012,8 +5077,8 @@ command_fails_like(
 		'--schema-only',
 		'--statistics',
 	],
-	qr/\Qpg_dump: error: options -s\/--schema-only and --statistics cannot be used together\E/,
-	'cannot use --schema-only and --statistics together');
+	qr/\Qpg_dump: error: options --statistics and -s\/--schema-only cannot be used together\E/,
+	'cannot use --statistics and --schema-only together');
 
 command_fails_like(
 	[

@@ -17,6 +17,7 @@
 #include <ctype.h>
 
 #include "access/htup_details.h"
+#include "bootstrap/bootstrap.h"
 #include "catalog/catalog.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_auth_members.h"
@@ -268,6 +269,9 @@ putid(char *p, const char *s)
  *		This routine is called by the parser as well as aclitemin(), hence
  *		the added generality.
  *
+ *		In bootstrap mode, we consult a hard-wired list of role names
+ *		(see bootstrap.c) rather than trying to access the catalogs.
+ *
  * RETURNS:
  *		the string position in 's' immediately following the ACL
  *		specification.  Also:
@@ -383,7 +387,10 @@ aclparse(const char *s, AclItem *aip, Node *escontext)
 		aip->ai_grantee = ACL_ID_PUBLIC;
 	else
 	{
-		aip->ai_grantee = get_role_oid(name, true);
+		if (IsBootstrapProcessingMode())
+			aip->ai_grantee = boot_get_role_oid(name);
+		else
+			aip->ai_grantee = get_role_oid(name, true);
 		if (!OidIsValid(aip->ai_grantee))
 			ereturn(escontext, NULL,
 					(errcode(ERRCODE_UNDEFINED_OBJECT),
@@ -392,7 +399,8 @@ aclparse(const char *s, AclItem *aip, Node *escontext)
 
 	/*
 	 * XXX Allow a degree of backward compatibility by defaulting the grantor
-	 * to the superuser.
+	 * to the superuser.  We condone that practice in the catalog .dat files
+	 * (i.e., in bootstrap mode) for brevity; otherwise, issue a warning.
 	 */
 	if (*s == '/')
 	{
@@ -403,7 +411,10 @@ aclparse(const char *s, AclItem *aip, Node *escontext)
 			ereturn(escontext, NULL,
 					(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
 					 errmsg("a name must follow the \"/\" sign")));
-		aip->ai_grantor = get_role_oid(name2, true);
+		if (IsBootstrapProcessingMode())
+			aip->ai_grantor = boot_get_role_oid(name2);
+		else
+			aip->ai_grantor = get_role_oid(name2, true);
 		if (!OidIsValid(aip->ai_grantor))
 			ereturn(escontext, NULL,
 					(errcode(ERRCODE_UNDEFINED_OBJECT),
@@ -412,10 +423,11 @@ aclparse(const char *s, AclItem *aip, Node *escontext)
 	else
 	{
 		aip->ai_grantor = BOOTSTRAP_SUPERUSERID;
-		ereport(WARNING,
-				(errcode(ERRCODE_INVALID_GRANTOR),
-				 errmsg("defaulting grantor to user ID %u",
-						BOOTSTRAP_SUPERUSERID)));
+		if (!IsBootstrapProcessingMode())
+			ereport(WARNING,
+					(errcode(ERRCODE_INVALID_GRANTOR),
+					 errmsg("defaulting grantor to user ID %u",
+							BOOTSTRAP_SUPERUSERID)));
 	}
 
 	ACLITEM_SET_PRIVS_GOPTIONS(*aip, privs, goption);

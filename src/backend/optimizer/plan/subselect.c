@@ -1643,15 +1643,19 @@ convert_EXISTS_sublink_to_join(PlannerInfo *root, SubLink *sublink,
  * Note: by suppressing the targetlist we could cause an observable behavioral
  * change, namely that any errors that might occur in evaluating the tlist
  * won't occur, nor will other side-effects of volatile functions.  This seems
- * unlikely to bother anyone in practice.
+ * unlikely to bother anyone in practice.  Note that any column privileges are
+ * still checked even if the reference is removed here.
+ *
+ * The SQL standard specifies that a SELECT * immediately inside EXISTS
+ * expands to not all columns but an arbitrary literal.  That is kind of the
+ * same idea, but our optimization goes further in that it throws away the
+ * entire targetlist, and not only if it was written as *.
  *
  * Returns true if was able to discard the targetlist, else false.
  */
 static bool
 simplify_EXISTS_query(PlannerInfo *root, Query *query)
 {
-	ListCell   *lc;
-
 	/*
 	 * We don't try to simplify at all if the query uses set operations,
 	 * aggregates, grouping sets, SRFs, modifying CTEs, HAVING, OFFSET, or FOR
@@ -1721,25 +1725,27 @@ simplify_EXISTS_query(PlannerInfo *root, Query *query)
 	query->hasDistinctOn = false;
 
 	/*
-	 * Since we have thrown away the GROUP BY clauses, we'd better remove the
-	 * RTE_GROUP RTE and clear the hasGroupRTE flag.
+	 * Since we have thrown away the GROUP BY clauses, we'd better get rid of
+	 * the RTE_GROUP RTE and clear the hasGroupRTE flag.  To safely get rid of
+	 * the RTE_GROUP RTE without shifting the index of any subsequent RTE in
+	 * the rtable, we convert the RTE to be RTE_RESULT type in-place, and zero
+	 * out RTE_GROUP-specific fields.
 	 */
-	foreach(lc, query->rtable)
+	if (query->hasGroupRTE)
 	{
-		RangeTblEntry *rte = lfirst_node(RangeTblEntry, lc);
-
-		/*
-		 * Remove the RTE_GROUP RTE and clear the hasGroupRTE flag.  (Since
-		 * we'll exit the foreach loop immediately, we don't bother with
-		 * foreach_delete_current.)
-		 */
-		if (rte->rtekind == RTE_GROUP)
+		foreach_node(RangeTblEntry, rte, query->rtable)
 		{
-			Assert(query->hasGroupRTE);
-			query->rtable = list_delete_cell(query->rtable, lc);
-			query->hasGroupRTE = false;
-			break;
+			if (rte->rtekind == RTE_GROUP)
+			{
+				rte->rtekind = RTE_RESULT;
+				rte->groupexprs = NIL;
+
+				/* A query should only have one RTE_GROUP, so we can stop. */
+				break;
+			}
 		}
+
+		query->hasGroupRTE = false;
 	}
 
 	return true;

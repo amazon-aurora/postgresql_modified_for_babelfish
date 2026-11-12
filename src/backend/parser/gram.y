@@ -208,6 +208,7 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 static PartitionStrategy parsePartitionStrategy(char *strategy, int location,
 												core_yyscan_t yyscanner);
 static void preprocess_pub_all_objtype_list(List *all_objects_list,
+											List **pubobjects,
 											bool *all_tables,
 											bool *all_sequences,
 											core_yyscan_t yyscanner);
@@ -302,7 +303,7 @@ fix_domain_typmods_hook_type fix_domain_typmods_hook = NULL;
 		AlterCompositeTypeStmt AlterUserMappingStmt
 		AlterRoleStmt AlterRoleSetStmt AlterPolicyStmt AlterStatsStmt
 		AlterDefaultPrivilegesStmt DefACLAction
-		AnalyzeStmt CallStmt ClosePortalStmt ClusterStmt CommentStmt
+		AnalyzeStmt CallStmt ClosePortalStmt CommentStmt
 		ConstraintsSetStmt CopyStmt CreateAsStmt CreateCastStmt
 		CreateDomainStmt CreateExtensionStmt CreateGroupStmt CreateOpClassStmt
 		CreateOpFamilyStmt AlterOpFamilyStmt CreatePLangStmt
@@ -319,7 +320,7 @@ fix_domain_typmods_hook_type fix_domain_typmods_hook = NULL;
 		GrantStmt GrantRoleStmt ImportForeignSchemaStmt IndexStmt InsertStmt
 		ListenStmt LoadStmt LockStmt MergeStmt NotifyStmt ExplainableStmt PreparableStmt
 		CreateFunctionStmt AlterFunctionStmt ReindexStmt RemoveAggrStmt
-		RemoveFuncStmt RemoveOperStmt RenameStmt ReturnStmt RevokeStmt RevokeRoleStmt
+		RemoveFuncStmt RemoveOperStmt RenameStmt RepackStmt ReturnStmt RevokeStmt RevokeRoleStmt
 		RuleActionStmt RuleActionStmtOrEmpty RuleStmt
 		SecLabelStmt SelectStmt TransactionStmt TransactionStmtLegacy TruncateStmt
 		UnlistenStmt UpdateStmt VacuumStmt
@@ -338,7 +339,7 @@ fix_domain_typmods_hook_type fix_domain_typmods_hook = NULL;
 
 %type <str>			opt_single_name
 %type <list>		opt_qualified_name
-%type <boolean>		opt_concurrently
+%type <boolean>		opt_concurrently opt_usingindex
 %type <dbehavior>	opt_drop_behavior
 %type <list>		opt_utility_option_list
 %type <list>		opt_wait_with_clause
@@ -470,6 +471,7 @@ fix_domain_typmods_hook_type fix_domain_typmods_hook = NULL;
 				TriggerTransitions TriggerReferencing
 				vacuum_relation_list opt_vacuum_relation_list
 				drop_option_list pub_obj_list pub_all_obj_type_list
+				pub_except_obj_list opt_pub_except_clause
 
 %type <retclause> returning_clause
 %type <node>	returning_option
@@ -607,6 +609,7 @@ fix_domain_typmods_hook_type fix_domain_typmods_hook = NULL;
 %type <node>	var_value zone_value
 %type <rolespec> auth_ident RoleSpec opt_granted_by
 %type <publicationobjectspec> PublicationObjSpec
+%type <publicationobjectspec> PublicationExceptObjSpec
 %type <publicationallobjectspec> PublicationAllObjSpec
 
 %type <keyword> unreserved_keyword type_func_name_keyword
@@ -632,8 +635,8 @@ fix_domain_typmods_hook_type fix_domain_typmods_hook = NULL;
 
 %type <str>		opt_provider security_label
 
-%type <target>	xml_attribute_el
-%type <list>	xml_attribute_list xml_attributes
+%type <target>	labeled_expr
+%type <list>	labeled_expr_list xml_attributes
 %type <node>	xml_root_version opt_xml_root_standalone
 %type <node>	xmlexists_argument
 %type <ival>	document_or_content
@@ -793,7 +796,7 @@ fix_domain_typmods_hook_type fix_domain_typmods_hook = NULL;
 	QUOTE QUOTES
 
 	RANGE READ REAL REASSIGN RECURSIVE REF_P REFERENCES REFERENCING
-	REFRESH REINDEX RELATIVE_P RELEASE RENAME REPEATABLE REPLACE REPLICA
+	REFRESH REINDEX RELATIVE_P RELEASE RENAME REPACK REPEATABLE REPLACE REPLICA
 	RESET RESPECT_P RESTART RESTRICT RETURN RETURNING RETURNS REVOKE RIGHT ROLE ROLLBACK ROLLUP
 	ROUTINE ROUTINES ROW ROWS RULE
 
@@ -1060,7 +1063,6 @@ stmt:
 			| CallStmt
 			| CheckPointStmt
 			| ClosePortalStmt
-			| ClusterStmt
 			| CommentStmt
 			| ConstraintsSetStmt
 			| CopyStmt
@@ -1134,6 +1136,7 @@ stmt:
 			| RemoveFuncStmt
 			| RemoveOperStmt
 			| RenameStmt
+			| RepackStmt
 			| RevokeStmt
 			| RevokeRoleStmt
 			| RuleStmt
@@ -1169,6 +1172,11 @@ opt_qualified_name:
 opt_concurrently:
 			CONCURRENTLY					{ $$ = true; }
 			| /*EMPTY*/						{ $$ = false; }
+		;
+
+opt_usingindex:
+			USING INDEX						{ $$ = true; }
+			| /* EMPTY */					{ $$ = false; }
 		;
 
 opt_drop_behavior:
@@ -5616,6 +5624,8 @@ fdw_option:
 			| NO HANDLER						{ $$ = makeDefElem("handler", NULL, @1); }
 			| VALIDATOR handler_name			{ $$ = makeDefElem("validator", (Node *) $2, @1); }
 			| NO VALIDATOR						{ $$ = makeDefElem("validator", NULL, @1); }
+			| CONNECTION handler_name			{ $$ = makeDefElem("connection", (Node *) $2, @1); }
+			| NO CONNECTION						{ $$ = makeDefElem("connection", NULL, @1); }
 		;
 
 fdw_options:
@@ -10850,7 +10860,7 @@ AlterOwnerStmt: ALTER AGGREGATE aggregate_with_argtypes OWNER TO RoleSpec
  *
  * pub_all_obj_type is one of:
  *
- *		TABLES
+ *		TABLES [EXCEPT TABLE ( table [, ...] )]
  *		SEQUENCES
  *
  * CREATE PUBLICATION FOR pub_obj [, ...] [WITH options]
@@ -10876,7 +10886,8 @@ CreatePublicationStmt:
 					CreatePublicationStmt *n = makeNode(CreatePublicationStmt);
 
 					n->pubname = $3;
-					preprocess_pub_all_objtype_list($5, &n->for_all_tables,
+					preprocess_pub_all_objtype_list($5, &n->pubobjects,
+													&n->for_all_tables,
 													&n->for_all_sequences,
 													yyscanner);
 					n->options = $6;
@@ -10991,11 +11002,17 @@ pub_obj_list:	PublicationObjSpec
 					{ $$ = lappend($1, $3); }
 	;
 
+opt_pub_except_clause:
+			EXCEPT TABLE '(' pub_except_obj_list ')'	{ $$ = $4; }
+			| /*EMPTY*/									{ $$ = NIL; }
+		;
+
 PublicationAllObjSpec:
-				ALL TABLES
+				ALL TABLES opt_pub_except_clause
 					{
 						$$ = makeNode(PublicationAllObjSpec);
 						$$->pubobjtype = PUBLICATION_ALL_TABLES;
+						$$->except_tables = $3;
 						$$->location = @1;
 					}
 				| ALL SEQUENCES
@@ -11012,6 +11029,23 @@ pub_all_obj_type_list:	PublicationAllObjSpec
 					{ $$ = lappend($1, $3); }
 	;
 
+PublicationExceptObjSpec:
+			 relation_expr
+				{
+					$$ = makeNode(PublicationObjSpec);
+					$$->pubobjtype = PUBLICATIONOBJ_EXCEPT_TABLE;
+					$$->pubtable = makeNode(PublicationTable);
+					$$->pubtable->except = true;
+					$$->pubtable->relation = $1;
+					$$->location = @1;
+				}
+	;
+
+pub_except_obj_list: PublicationExceptObjSpec
+					{ $$ = list_make1($1); }
+			| pub_except_obj_list ',' PublicationExceptObjSpec
+					{ $$ = lappend($1, $3); }
+	;
 
 /*****************************************************************************
  *
@@ -11088,6 +11122,16 @@ CreateSubscriptionStmt:
 					n->options = $8;
 					$$ = (Node *) n;
 				}
+			| CREATE SUBSCRIPTION name SERVER name PUBLICATION name_list opt_definition
+				{
+					CreateSubscriptionStmt *n =
+						makeNode(CreateSubscriptionStmt);
+					n->subname = $3;
+					n->servername = $5;
+					n->publication = $7;
+					n->options = $8;
+					$$ = (Node *) n;
+				}
 		;
 
 /*****************************************************************************
@@ -11115,6 +11159,16 @@ AlterSubscriptionStmt:
 					n->kind = ALTER_SUBSCRIPTION_CONNECTION;
 					n->subname = $3;
 					n->conninfo = $5;
+					$$ = (Node *) n;
+				}
+			| ALTER SUBSCRIPTION name SERVER name
+				{
+					AlterSubscriptionStmt *n =
+						makeNode(AlterSubscriptionStmt);
+
+					n->kind = ALTER_SUBSCRIPTION_SERVER;
+					n->subname = $3;
+					n->servername = $5;
 					$$ = (Node *) n;
 				}
 			| ALTER SUBSCRIPTION name REFRESH PUBLICATION opt_definition
@@ -12102,38 +12156,82 @@ CreateConversionStmt:
 /*****************************************************************************
  *
  *		QUERY:
+ *				REPACK [ (options) ] [ <qualified_name> [ <name_list> ] [ USING INDEX <index_name> ] ]
+ *
+ *			obsolete variants:
  *				CLUSTER (options) [ <qualified_name> [ USING <index_name> ] ]
  *				CLUSTER [VERBOSE] [ <qualified_name> [ USING <index_name> ] ]
  *				CLUSTER [VERBOSE] <index_name> ON <qualified_name> (for pre-8.3)
  *
  *****************************************************************************/
 
-ClusterStmt:
-			CLUSTER '(' utility_option_list ')' qualified_name cluster_index_specification
+RepackStmt:
+			REPACK opt_utility_option_list vacuum_relation USING INDEX name
 				{
-					ClusterStmt *n = makeNode(ClusterStmt);
+					RepackStmt *n = makeNode(RepackStmt);
 
-					n->relation = $5;
+					n->command = REPACK_COMMAND_REPACK;
+					n->relation = (VacuumRelation *) $3;
 					n->indexname = $6;
+					n->usingindex = true;
+					n->params = $2;
+					$$ = (Node *) n;
+				}
+			| REPACK opt_utility_option_list vacuum_relation opt_usingindex
+				{
+					RepackStmt *n = makeNode(RepackStmt);
+
+					n->command = REPACK_COMMAND_REPACK;
+					n->relation = (VacuumRelation *) $3;
+					n->indexname = NULL;
+					n->usingindex = $4;
+					n->params = $2;
+					$$ = (Node *) n;
+				}
+			| REPACK opt_utility_option_list opt_usingindex
+				{
+					RepackStmt *n = makeNode(RepackStmt);
+
+					n->command = REPACK_COMMAND_REPACK;
+					n->relation = NULL;
+					n->indexname = NULL;
+					n->usingindex = $3;
+					n->params = $2;
+					$$ = (Node *) n;
+				}
+			| CLUSTER '(' utility_option_list ')' qualified_name cluster_index_specification
+				{
+					RepackStmt *n = makeNode(RepackStmt);
+
+					n->command = REPACK_COMMAND_CLUSTER;
+					n->relation = makeNode(VacuumRelation);
+					n->relation->relation = $5;
+					n->indexname = $6;
+					n->usingindex = true;
 					n->params = $3;
 					$$ = (Node *) n;
 				}
 			| CLUSTER opt_utility_option_list
 				{
-					ClusterStmt *n = makeNode(ClusterStmt);
+					RepackStmt *n = makeNode(RepackStmt);
 
+					n->command = REPACK_COMMAND_CLUSTER;
 					n->relation = NULL;
 					n->indexname = NULL;
+					n->usingindex = true;
 					n->params = $2;
 					$$ = (Node *) n;
 				}
 			/* unparenthesized VERBOSE kept for pre-14 compatibility */
 			| CLUSTER opt_verbose qualified_name cluster_index_specification
 				{
-					ClusterStmt *n = makeNode(ClusterStmt);
+					RepackStmt *n = makeNode(RepackStmt);
 
-					n->relation = $3;
+					n->command = REPACK_COMMAND_CLUSTER;
+					n->relation = makeNode(VacuumRelation);
+					n->relation->relation = $3;
 					n->indexname = $4;
+					n->usingindex = true;
 					if ($2)
 						n->params = list_make1(makeDefElem("verbose", NULL, @2));
 					$$ = (Node *) n;
@@ -12141,20 +12239,25 @@ ClusterStmt:
 			/* unparenthesized VERBOSE kept for pre-17 compatibility */
 			| CLUSTER VERBOSE
 				{
-					ClusterStmt *n = makeNode(ClusterStmt);
+					RepackStmt *n = makeNode(RepackStmt);
 
+					n->command = REPACK_COMMAND_CLUSTER;
 					n->relation = NULL;
 					n->indexname = NULL;
+					n->usingindex = true;
 					n->params = list_make1(makeDefElem("verbose", NULL, @2));
 					$$ = (Node *) n;
 				}
 			/* kept for pre-8.3 compatibility */
 			| CLUSTER opt_verbose name ON qualified_name
 				{
-					ClusterStmt *n = makeNode(ClusterStmt);
+					RepackStmt *n = makeNode(RepackStmt);
 
-					n->relation = $5;
+					n->command = REPACK_COMMAND_CLUSTER;
+					n->relation = makeNode(VacuumRelation);
+					n->relation->relation = $5;
 					n->indexname = $3;
+					n->usingindex = true;
 					if ($2)
 						n->params = list_make1(makeDefElem("verbose", NULL, @2));
 					$$ = (Node *) n;
@@ -16452,7 +16555,7 @@ func_expr_common_subexpr:
 											   COERCE_SQL_SYNTAX,
 											   @1);
 				}
-			| XMLFOREST '(' xml_attribute_list ')'
+			| XMLFOREST '(' labeled_expr_list ')'
 				{
 					$$ = makeXmlExpr(IS_XMLFOREST, NULL, $3, NIL, @1);
 				}
@@ -16677,14 +16780,14 @@ opt_xml_root_standalone: ',' STANDALONE_P YES_P
 				{ $$ = makeIntConst(XML_STANDALONE_OMITTED, -1); }
 		;
 
-xml_attributes: XMLATTRIBUTES '(' xml_attribute_list ')'	{ $$ = $3; }
+xml_attributes: XMLATTRIBUTES '(' labeled_expr_list ')'	{ $$ = $3; }
 		;
 
-xml_attribute_list:	xml_attribute_el					{ $$ = list_make1($1); }
-			| xml_attribute_list ',' xml_attribute_el	{ $$ = lappend($1, $3); }
+labeled_expr_list:	labeled_expr					{ $$ = list_make1($1); }
+			| labeled_expr_list ',' labeled_expr	{ $$ = lappend($1, $3); }
 		;
 
-xml_attribute_el: a_expr AS ColLabel
+labeled_expr: a_expr AS ColLabel
 				{
 					$$ = makeNode(ResTarget);
 					$$->name = $3;
@@ -18396,6 +18499,7 @@ unreserved_keyword:
 			| RELATIVE_P
 			| RELEASE
 			| RENAME
+			| REPACK
 			| REPEATABLE
 			| REPLACE
 			| REPLICA
@@ -19033,6 +19137,7 @@ bare_label_keyword:
 			| RELATIVE_P
 			| RELEASE
 			| RENAME
+			| REPACK
 			| REPEATABLE
 			| REPLACE
 			| REPLICA
@@ -20119,8 +20224,9 @@ parsePartitionStrategy(char *strategy, int location, core_yyscan_t yyscanner)
  * Also, checks if the pub_object_type has been specified more than once.
  */
 static void
-preprocess_pub_all_objtype_list(List *all_objects_list, bool *all_tables,
-								bool *all_sequences, core_yyscan_t yyscanner)
+preprocess_pub_all_objtype_list(List *all_objects_list, List **pubobjects,
+								bool *all_tables, bool *all_sequences,
+								core_yyscan_t yyscanner)
 {
 	if (!all_objects_list)
 		return;
@@ -20140,6 +20246,7 @@ preprocess_pub_all_objtype_list(List *all_objects_list, bool *all_tables,
 						parser_errposition(obj->location));
 
 			*all_tables = true;
+			*pubobjects = list_concat(*pubobjects, obj->except_tables);
 		}
 		else if (obj->pubobjtype == PUBLICATION_ALL_SEQUENCES)
 		{

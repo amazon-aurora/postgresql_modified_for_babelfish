@@ -79,6 +79,7 @@
 #include "postmaster/protocol_extension.h"
 #include "postmaster/postmaster.h"
 #include "storage/ipc.h"
+#include "storage/latch.h"
 #include "utils/guc_hooks.h"
 #include "utils/memutils.h"
 

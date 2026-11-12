@@ -549,10 +549,10 @@ if test "$GCC" = yes -a "$ICC" = no; then
   AC_SUBST(PERMIT_DECLARATION_AFTER_STATEMENT)
   # Really don't want VLAs to be used in our dialect of C
   PGAC_PROG_CC_CFLAGS_OPT([-Werror=vla])
+  # -Wvla is not applicable for C++
   # On macOS, complain about usage of symbols newer than the deployment target
   PGAC_PROG_CC_CFLAGS_OPT([-Werror=unguarded-availability-new])
   PGAC_PROG_CXX_CFLAGS_OPT([-Werror=unguarded-availability-new])
-  # -Wvla is not applicable for C++
   PGAC_PROG_CC_CFLAGS_OPT([-Wendif-labels])
   PGAC_PROG_CXX_CFLAGS_OPT([-Wendif-labels])
   PGAC_PROG_CC_CFLAGS_OPT([-Wmissing-format-attribute])
@@ -1730,8 +1730,8 @@ m4_defun([AC_PROG_CC_STDC], []) dnl We don't want that.
 AC_C_BIGENDIAN
 PGAC_PRINTF_ARCHETYPE
 PGAC_CXX_PRINTF_ARCHETYPE
-PGAC_C_STATEMENT_EXPRESSIONS
 PGAC_C_TYPEOF
+PGAC_CXX_TYPEOF
 PGAC_C_TYPES_COMPATIBLE
 PGAC_C_BUILTIN_CONSTANT_P
 PGAC_C_BUILTIN_OP_OVERFLOW
@@ -1841,6 +1841,7 @@ AC_CHECK_FUNCS(m4_normalize([
 	copyfile
 	copy_file_range
 	elf_aux_info
+	explicit_memset
 	getauxval
 	getifaddrs
 	getpeerucred
@@ -1848,6 +1849,7 @@ AC_CHECK_FUNCS(m4_normalize([
 	kqueue
 	localeconv_l
 	mbstowcs_l
+	memset_explicit
 	posix_fallocate
 	ppoll
 	pthread_is_threaded_np

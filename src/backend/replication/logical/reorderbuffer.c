@@ -113,6 +113,7 @@
 #include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/relfilenumbermap.h"
+#include "utils/wait_event.h"
 
 /*
  * Each transaction has an 8MB limit for invalidation messages distributed from
@@ -2491,7 +2492,7 @@ ReorderBufferProcessTXN(ReorderBuffer *rb, ReorderBufferTXN *txn,
 						int			nrelations = 0;
 						Relation   *relations;
 
-						relations = palloc0(nrelids * sizeof(Relation));
+						relations = palloc0_array(Relation, nrelids);
 						for (i = 0; i < nrelids; i++)
 						{
 							Oid			relid = change->data.truncate.relids[i];
@@ -3517,9 +3518,9 @@ ReorderBufferAccumulateInvalidations(SharedInvalidationMessage **invals_out,
 	else
 	{
 		/* Enlarge the array of inval messages */
-		*invals_out = (SharedInvalidationMessage *)
-			repalloc(*invals_out, sizeof(SharedInvalidationMessage) *
-					 (*ninvals_out + nmsgs_new));
+		*invals_out =
+			repalloc_array(*invals_out, SharedInvalidationMessage,
+						   (*ninvals_out + nmsgs_new));
 		memcpy(*invals_out + *ninvals_out, msgs_new,
 			   nmsgs_new * sizeof(SharedInvalidationMessage));
 		*ninvals_out += nmsgs_new;

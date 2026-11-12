@@ -600,6 +600,7 @@ CustomScanMethods
 CustomScanState
 CycleCtr
 DBState
+DbOidName
 DCHCacheEntry
 DEADLOCK_INFO
 DECountItem
@@ -1926,6 +1927,7 @@ PGdataValue
 PGlobjfuncs
 PGnotify
 PGoauthBearerRequest
+PGoauthBearerRequestV2
 PGpipelineStatus
 PGpromptOAuthDevice
 PGresAttDesc
@@ -2580,6 +2582,8 @@ ReorderBufferTupleCidEnt
 ReorderBufferTupleCidKey
 ReorderBufferUpdateProgressTxnCB
 ReorderTuple
+RepackCommand
+RepackStmt
 ReparameterizeForeignPathByChild_function
 ReplOriginId
 ReplOriginXactState
@@ -2762,6 +2766,7 @@ SetConstraintStateData
 SetConstraintTriggerData
 SetExprState
 SetFunctionReturnMode
+SetHintBitsState
 SetOp
 SetOpCmd
 SetOpPath
@@ -3395,6 +3400,7 @@ X509_NAME
 X509_NAME_ENTRY
 X509_STORE
 X509_STORE_CTX
+X86FeatureId
 XLTW_Oper
 XLogCtlData
 XLogCtlInsert

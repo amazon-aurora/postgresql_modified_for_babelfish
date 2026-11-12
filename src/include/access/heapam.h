@@ -209,6 +209,18 @@ typedef struct HeapPageFreeze
 	MultiXactId FreezePageRelminMxid;
 
 	/*
+	 * Newest XID that this page's freeze actions will remove from tuple
+	 * visibility metadata (currently xmin and/or xvac). It is used to derive
+	 * the snapshot conflict horizon for a WAL record that freezes tuples. On
+	 * a standby, we must not replay that change while any snapshot could
+	 * still treat that XID as running.
+	 *
+	 * It's only used if we execute freeze plans for this page, so there is no
+	 * corresponding "no freeze" tracker.
+	 */
+	TransactionId FreezePageConflictXid;
+
+	/*
 	 * "No freeze" NewRelfrozenXid/NewRelminMxid trackers.
 	 *
 	 * These trackers are maintained in the same way as the trackers used when
@@ -285,18 +297,19 @@ typedef struct PruneFreezeResult
 	int			recently_dead_tuples;
 
 	/*
-	 * all_visible and all_frozen indicate if the all-visible and all-frozen
-	 * bits in the visibility map can be set for this page, after pruning.
+	 * set_all_visible and set_all_frozen indicate if the all-visible and
+	 * all-frozen bits in the visibility map should be set for this page after
+	 * pruning.
 	 *
 	 * vm_conflict_horizon is the newest xmin of live tuples on the page.  The
 	 * caller can use it as the conflict horizon when setting the VM bits.  It
-	 * is only valid if we froze some tuples (nfrozen > 0), and all_frozen is
-	 * true.
+	 * is only valid if we froze some tuples (nfrozen > 0), and set_all_frozen
+	 * is true.
 	 *
 	 * These are only set if the HEAP_PAGE_PRUNE_FREEZE option is set.
 	 */
-	bool		all_visible;
-	bool		all_frozen;
+	bool		set_all_visible;
+	bool		set_all_frozen;
 	TransactionId vm_conflict_horizon;
 
 	/*

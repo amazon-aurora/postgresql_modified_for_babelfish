@@ -676,6 +676,7 @@ typedef struct _PublicationInfo
 	bool		pubtruncate;
 	bool		pubviaroot;
 	PublishGencolsType pubgencols_type;
+	SimplePtrList except_tables;
 } PublicationInfo;
 
 /*
@@ -719,6 +720,7 @@ typedef struct _SubscriptionInfo
 	bool		subfailover;
 	bool		subretaindeadtuples;
 	int			submaxretention;
+	char	   *subservername;
 	char	   *subconninfo;
 	char	   *subslotname;
 	char	   *subsynccommit;

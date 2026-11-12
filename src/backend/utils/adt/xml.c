@@ -377,6 +377,7 @@ xml_recv(PG_FUNCTION_ARGS)
 #ifdef USE_LIBXML
 	StringInfo	buf = (StringInfo) PG_GETARG_POINTER(0);
 	xmltype    *result;
+	const char *input;
 	char	   *str;
 	char	   *newstr;
 	int			nbytes;
@@ -390,7 +391,7 @@ xml_recv(PG_FUNCTION_ARGS)
 	 * parse that before converting to server encoding.
 	 */
 	nbytes = buf->len - buf->cursor;
-	str = (char *) pq_getmsgbytes(buf, nbytes);
+	input = pq_getmsgbytes(buf, nbytes);
 
 	/*
 	 * We need a null-terminated string to pass to parse_xml_decl().  Rather
@@ -399,7 +400,7 @@ xml_recv(PG_FUNCTION_ARGS)
 	 */
 	result = palloc(nbytes + 1 + VARHDRSZ);
 	SET_VARSIZE(result, nbytes + VARHDRSZ);
-	memcpy(VARDATA(result), str, nbytes);
+	memcpy(VARDATA(result), input, nbytes);
 	str = VARDATA(result);
 	str[nbytes] = '\0';
 
@@ -533,7 +534,7 @@ xmltext(PG_FUNCTION_ARGS)
 #ifdef USE_LIBXML
 	text	   *arg = PG_GETARG_TEXT_PP(0);
 	text	   *result;
-	volatile xmlChar *xmlbuf = NULL;
+	xmlChar    *volatile xmlbuf = NULL;
 	PgXmlErrorContext *xmlerrcxt;
 
 	/* First we gotta spin up some error handling. */
@@ -548,19 +549,19 @@ xmltext(PG_FUNCTION_ARGS)
 						"could not allocate xmlChar");
 
 		result = cstring_to_text_with_len((const char *) xmlbuf,
-										  xmlStrlen((const xmlChar *) xmlbuf));
+										  xmlStrlen(xmlbuf));
 	}
 	PG_CATCH();
 	{
 		if (xmlbuf)
-			xmlFree((xmlChar *) xmlbuf);
+			xmlFree(xmlbuf);
 
 		pg_xml_done(xmlerrcxt, true);
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
 
-	xmlFree((xmlChar *) xmlbuf);
+	xmlFree(xmlbuf);
 	pg_xml_done(xmlerrcxt, false);
 
 	PG_RETURN_XML_P(result);
@@ -4251,7 +4252,7 @@ xml_xmlnodetoxmltype(xmlNodePtr cur, PgXmlErrorContext *xmlerrcxt)
 	}
 	else
 	{
-		volatile xmlChar *str = NULL;
+		xmlChar    *volatile str = NULL;
 
 		PG_TRY();
 		{
@@ -4271,7 +4272,7 @@ xml_xmlnodetoxmltype(xmlNodePtr cur, PgXmlErrorContext *xmlerrcxt)
 		PG_FINALLY();
 		{
 			if (str)
-				xmlFree((xmlChar *) str);
+				xmlFree(str);
 		}
 		PG_END_TRY();
 	}

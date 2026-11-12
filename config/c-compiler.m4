@@ -150,22 +150,6 @@ fi])# PGAC_TYPE_128BIT_INT
 
 
 
-# PGAC_C_STATEMENT_EXPRESSIONS
-# ----------------------------
-# Check if the C compiler understands GCC statement expressions.
-AC_DEFUN([PGAC_C_STATEMENT_EXPRESSIONS],
-[AC_CACHE_CHECK(for statement expressions, pgac_cv_statement_expressions,
-[AC_LINK_IFELSE([AC_LANG_PROGRAM([],
-[({ _Static_assert(1, "foo"); })])],
-[pgac_cv_statement_expressions=yes],
-[pgac_cv_statement_expressions=no])])
-if test x"$pgac_cv_statement_expressions" = xyes ; then
-AC_DEFINE(HAVE_STATEMENT_EXPRESSIONS, 1,
-          [Define to 1 if your compiler supports statement expressions.])
-fi])# PGAC_C_STATEMENT_EXPRESSIONS
-
-
-
 # PGAC_C_TYPEOF
 # -------------
 # Check if the C compiler understands typeof or a variant.  Define
@@ -190,6 +174,35 @@ if test "$pgac_cv_c_typeof" != no; then
     AC_DEFINE_UNQUOTED(typeof, $pgac_cv_c_typeof, [Define to how the compiler spells `typeof'.])
   fi
 fi])# PGAC_C_TYPEOF
+
+
+
+# PGAC_CXX_TYPEOF
+# ----------------
+# Check if the C++ compiler understands typeof or a variant.  Define
+# HAVE_CXX_TYPEOF if so, and define 'pg_cxx_typeof' to the actual key word.
+#
+AC_DEFUN([PGAC_CXX_TYPEOF],
+[AC_CACHE_CHECK(for C++ typeof, pgac_cv_cxx_typeof,
+[pgac_cv_cxx_typeof=no
+AC_LANG_PUSH(C++)
+for pgac_kw in typeof __typeof__; do
+  AC_COMPILE_IFELSE([AC_LANG_PROGRAM([],
+[int x = 0;
+$pgac_kw(x) y;
+y = x;
+return y;])],
+[pgac_cv_cxx_typeof=$pgac_kw])
+  test "$pgac_cv_cxx_typeof" != no && break
+done
+AC_LANG_POP([])])
+if test "$pgac_cv_cxx_typeof" != no; then
+  AC_DEFINE(HAVE_CXX_TYPEOF, 1,
+            [Define to 1 if your C++ compiler understands `typeof' or something similar.])
+  if test "$pgac_cv_cxx_typeof" != typeof; then
+    AC_DEFINE_UNQUOTED(pg_cxx_typeof, $pgac_cv_cxx_typeof, [Define to how the C++ compiler spells `typeof'.])
+  fi
+fi])# PGAC_CXX_TYPEOF
 
 
 

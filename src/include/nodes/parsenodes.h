@@ -4003,18 +4003,6 @@ typedef struct AlterSystemStmt
 } AlterSystemStmt;
 
 /* ----------------------
- *		Cluster Statement (support pbrown's cluster index implementation)
- * ----------------------
- */
-typedef struct ClusterStmt
-{
-	NodeTag		type;
-	RangeVar   *relation;		/* relation being indexed, or NULL if all */
-	char	   *indexname;		/* original index defined */
-	List	   *params;			/* list of DefElem nodes */
-} ClusterStmt;
-
-/* ----------------------
  *		Vacuum and Analyze Statements
  *
  * Even though these are nominally two statements, it's convenient to use
@@ -4026,7 +4014,7 @@ typedef struct VacuumStmt
 	NodeTag		type;
 	List	   *options;		/* list of DefElem nodes */
 	List	   *rels;			/* list of VacuumRelation, or NIL for all */
-	bool		is_vacuumcmd;	/* true for VACUUM, false for ANALYZE */
+	bool		is_vacuumcmd;	/* true for VACUUM, false otherwise */
 } VacuumStmt;
 
 /*
@@ -4043,6 +4031,27 @@ typedef struct VacuumRelation
 	Oid			oid;			/* table's OID; InvalidOid if not looked up */
 	List	   *va_cols;		/* list of column names, or NIL for all */
 } VacuumRelation;
+
+/* ----------------------
+ *		Repack Statement
+ * ----------------------
+ */
+typedef enum RepackCommand
+{
+	REPACK_COMMAND_CLUSTER = 1,
+	REPACK_COMMAND_REPACK,
+	REPACK_COMMAND_VACUUMFULL,
+} RepackCommand;
+
+typedef struct RepackStmt
+{
+	NodeTag		type;
+	RepackCommand command;		/* type of command being run */
+	VacuumRelation *relation;	/* relation being repacked */
+	char	   *indexname;		/* order tuples by this index */
+	bool		usingindex;		/* whether USING INDEX is specified */
+	List	   *params;			/* list of DefElem nodes */
+} RepackStmt;
 
 /* ----------------------
  *		Explain Statement
@@ -4319,9 +4328,10 @@ typedef struct AlterTSConfigurationStmt
 typedef struct PublicationTable
 {
 	NodeTag		type;
-	RangeVar   *relation;		/* relation to be published */
+	RangeVar   *relation;		/* publication relation */
 	Node	   *whereClause;	/* qualifications */
 	List	   *columns;		/* List of columns in a publication table */
+	bool		except;			/* True if listed in the EXCEPT clause */
 } PublicationTable;
 
 /*
@@ -4330,6 +4340,7 @@ typedef struct PublicationTable
 typedef enum PublicationObjSpecType
 {
 	PUBLICATIONOBJ_TABLE,		/* A table */
+	PUBLICATIONOBJ_EXCEPT_TABLE,	/* A table in the EXCEPT clause */
 	PUBLICATIONOBJ_TABLES_IN_SCHEMA,	/* All tables in schema */
 	PUBLICATIONOBJ_TABLES_IN_CUR_SCHEMA,	/* All tables in first element of
 											 * search_path */
@@ -4358,6 +4369,7 @@ typedef struct PublicationAllObjSpec
 {
 	NodeTag		type;
 	PublicationAllObjType pubobjtype;	/* type of this publication object */
+	List	   *except_tables;	/* tables specified in the EXCEPT clause */
 	ParseLoc	location;		/* token location, or -1 if unknown */
 } PublicationAllObjSpec;
 
@@ -4400,6 +4412,7 @@ typedef struct CreateSubscriptionStmt
 {
 	NodeTag		type;
 	char	   *subname;		/* Name of the subscription */
+	char	   *servername;		/* Server name of publisher */
 	char	   *conninfo;		/* Connection string to publisher */
 	List	   *publication;	/* One or more publication to subscribe to */
 	List	   *options;		/* List of DefElem nodes */
@@ -4408,6 +4421,7 @@ typedef struct CreateSubscriptionStmt
 typedef enum AlterSubscriptionType
 {
 	ALTER_SUBSCRIPTION_OPTIONS,
+	ALTER_SUBSCRIPTION_SERVER,
 	ALTER_SUBSCRIPTION_CONNECTION,
 	ALTER_SUBSCRIPTION_SET_PUBLICATION,
 	ALTER_SUBSCRIPTION_ADD_PUBLICATION,
@@ -4423,6 +4437,7 @@ typedef struct AlterSubscriptionStmt
 	NodeTag		type;
 	AlterSubscriptionType kind; /* ALTER_SUBSCRIPTION_OPTIONS, etc */
 	char	   *subname;		/* Name of the subscription */
+	char	   *servername;		/* Server name of publisher */
 	char	   *conninfo;		/* Connection string to publisher */
 	List	   *publication;	/* One or more publication to subscribe to */
 	List	   *options;		/* List of DefElem nodes */
