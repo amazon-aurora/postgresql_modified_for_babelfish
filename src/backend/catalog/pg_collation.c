@@ -262,7 +262,7 @@ CollationCreate(const char *collname, Oid collnamespace,
 	return oid;
 }
 
-Oid CLUSTER_COLLATION_OID()
+Oid CLUSTER_COLLATION_OID(void)
 {
 	/*
 	 * We provide a function hook variable that lets loadable plugins get

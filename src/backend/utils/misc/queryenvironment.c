@@ -133,7 +133,7 @@ create_queryEnv2(MemoryContext cxt, bool top_level)
 }
 
 /* Remove the current query environment and make its parent current. */
-void remove_queryEnv() {
+void remove_queryEnv(void) {
 	MemoryContext			oldcxt;
 	QueryEnvironment		*tmp;
 
@@ -255,7 +255,7 @@ unregister_ENR(QueryEnvironment *queryEnv, const char *name)
 /*
  * Return the list of ENRs registered in the current query environment.
  */
-List *get_namedRelList()
+List *get_namedRelList(void)
 {
 	List *relList = NIL;
 	QueryEnvironment *qe = currentQueryEnv;
@@ -1859,7 +1859,7 @@ void SaveCatcacheMessage(int cacheId,
 }
 
 /* Clear any saved catcache messages at end of xact. */
-void ClearSavedCatcacheMessages()
+void ClearSavedCatcacheMessages(void)
 {
 	if (!currentQueryEnv || !currentQueryEnv->savedCatcacheMessages)
 		return;
@@ -1942,7 +1942,7 @@ bool IsTsqlTempTable(char relpersistence)
 /* 
  * Simple check for whether to use temp OID buffer.
  */
-bool UseTempOidBuffer()
+bool UseTempOidBuffer(void)
 {
 	return sql_dialect == SQL_DIALECT_TSQL 
 		&& GetNewTempOidWithIndex_hook 
@@ -1956,7 +1956,7 @@ bool UseTempOidBufferForOid(Oid relId)
 		&& GetENRTempTableWithOid(relId, false);
 }
 
-bool has_existing_enr_relations()
+bool has_existing_enr_relations(void)
 {
 	QueryEnvironment *queryEnv = currentQueryEnv;
 
