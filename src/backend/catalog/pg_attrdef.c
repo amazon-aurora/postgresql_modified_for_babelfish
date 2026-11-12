@@ -24,6 +24,7 @@
 #include "catalog/pg_attrdef.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
+#include "utils/queryenvironment.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
 
