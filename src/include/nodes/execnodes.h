@@ -29,35 +29,44 @@
 #ifndef EXECNODES_H
 #define EXECNODES_H
 
-#include "access/skey.h"
-#include "access/tupconvert.h"
-#include "executor/instrument.h"
+#include "access/htup.h"
 #include "executor/instrument_node.h"
 #include "fmgr.h"
 #include "lib/ilist.h"
-#include "lib/pairingheap.h"
 #include "nodes/miscnodes.h"
 #include "nodes/params.h"
 #include "nodes/plannodes.h"
-#include "nodes/tidbitmap.h"
 #include "partitioning/partdefs.h"
-#include "storage/condition_variable.h"
-#include "utils/hsearch.h"
-#include "utils/queryenvironment.h"
+#include "storage/buf.h"
 #include "utils/reltrigger.h"
-#include "utils/sharedtuplestore.h"
-#include "utils/snapshot.h"
-#include "utils/sortsupport.h"
-#include "utils/tuplesort.h"
-#include "utils/tuplestore.h"
+
 
 /*
  * forward references in this file
  */
-typedef struct PlanState PlanState;
+typedef struct BufferUsage BufferUsage;
 typedef struct ExecRowMark ExecRowMark;
 typedef struct ExprState ExprState;
 typedef struct ExprContext ExprContext;
+typedef struct HTAB HTAB;
+typedef struct Instrumentation Instrumentation;
+typedef struct pairingheap pairingheap;
+typedef struct PlanState PlanState;
+typedef struct QueryEnvironment QueryEnvironment;
+typedef struct RelationData *Relation;
+typedef Relation *RelationPtr;
+typedef struct ScanKeyData ScanKeyData;
+typedef struct SnapshotData *Snapshot;
+typedef struct SortSupportData *SortSupport;
+typedef struct TIDBitmap TIDBitmap;
+typedef struct TupleConversionMap TupleConversionMap;
+typedef struct TupleDescData *TupleDesc;
+typedef struct Tuplesortstate Tuplesortstate;
+typedef struct Tuplestorestate Tuplestorestate;
+typedef struct TupleTableSlot TupleTableSlot;
+typedef struct TupleTableSlotOps TupleTableSlotOps;
+typedef struct WalUsage WalUsage;
+typedef struct WorkerInstrumentation WorkerInstrumentation;
 
 
 /* ----------------
@@ -1736,7 +1745,7 @@ typedef struct IndexScanState
 	ExprContext *iss_RuntimeContext;
 	Relation	iss_RelationDesc;
 	struct IndexScanDescData *iss_ScanDesc;
-	IndexScanInstrumentation iss_Instrument;
+	IndexScanInstrumentation *iss_Instrument;
 	SharedIndexScanInstrumentation *iss_SharedInfo;
 
 	/* These are needed for re-checking ORDER BY expr ordering */
@@ -1787,7 +1796,7 @@ typedef struct IndexOnlyScanState
 	ExprContext *ioss_RuntimeContext;
 	Relation	ioss_RelationDesc;
 	struct IndexScanDescData *ioss_ScanDesc;
-	IndexScanInstrumentation ioss_Instrument;
+	IndexScanInstrumentation *ioss_Instrument;
 	SharedIndexScanInstrumentation *ioss_SharedInfo;
 	TupleTableSlot *ioss_TableSlot;
 	Buffer		ioss_VMBuffer;
@@ -1828,45 +1837,10 @@ typedef struct BitmapIndexScanState
 	ExprContext *biss_RuntimeContext;
 	Relation	biss_RelationDesc;
 	struct IndexScanDescData *biss_ScanDesc;
-	IndexScanInstrumentation biss_Instrument;
+	IndexScanInstrumentation *biss_Instrument;
 	SharedIndexScanInstrumentation *biss_SharedInfo;
 } BitmapIndexScanState;
 
-/* ----------------
- *	 SharedBitmapState information
- *
- *		BM_INITIAL		TIDBitmap creation is not yet started, so first worker
- *						to see this state will set the state to BM_INPROGRESS
- *						and that process will be responsible for creating
- *						TIDBitmap.
- *		BM_INPROGRESS	TIDBitmap creation is in progress; workers need to
- *						sleep until it's finished.
- *		BM_FINISHED		TIDBitmap creation is done, so now all workers can
- *						proceed to iterate over TIDBitmap.
- * ----------------
- */
-typedef enum
-{
-	BM_INITIAL,
-	BM_INPROGRESS,
-	BM_FINISHED,
-} SharedBitmapState;
-
-/* ----------------
- *	 ParallelBitmapHeapState information
- *		tbmiterator				iterator for scanning current pages
- *		mutex					mutual exclusion for state
- *		state					current state of the TIDBitmap
- *		cv						conditional wait variable
- * ----------------
- */
-typedef struct ParallelBitmapHeapState
-{
-	dsa_pointer tbmiterator;
-	slock_t		mutex;
-	SharedBitmapState state;
-	ConditionVariable cv;
-} ParallelBitmapHeapState;
 
 /* ----------------
  *	 BitmapHeapScanState information
@@ -1880,6 +1854,10 @@ typedef struct ParallelBitmapHeapState
  *		recheck			   do current page's tuples need recheck
  * ----------------
  */
+
+/* this struct is defined in nodeBitmapHeapscan.c */
+typedef struct ParallelBitmapHeapState ParallelBitmapHeapState;
+
 typedef struct BitmapHeapScanState
 {
 	ScanState	ss;				/* its first field is NodeTag */
@@ -2236,8 +2214,11 @@ typedef struct MergeJoinState
  *		hj_NullOuterTupleSlot	prepared null tuple for right/right-anti/full
  *								outer joins
  *		hj_NullInnerTupleSlot	prepared null tuple for left/full outer joins
+ *		hj_NullOuterTupleStore	tuplestore holding outer tuples that have
+ *								null join keys (but must be emitted anyway)
  *		hj_FirstOuterTupleSlot	first tuple retrieved from outer plan
  *		hj_JoinState			current state of ExecHashJoin state machine
+ *		hj_KeepNullTuples		true to keep outer tuples with null join keys
  *		hj_MatchedOuter			true if found a join match for current outer
  *		hj_OuterNotEmpty		true if outer relation known not empty
  * ----------------
@@ -2261,8 +2242,10 @@ typedef struct HashJoinState
 	TupleTableSlot *hj_HashTupleSlot;
 	TupleTableSlot *hj_NullOuterTupleSlot;
 	TupleTableSlot *hj_NullInnerTupleSlot;
+	Tuplestorestate *hj_NullOuterTupleStore;
 	TupleTableSlot *hj_FirstOuterTupleSlot;
 	int			hj_JoinState;
+	bool		hj_KeepNullTuples;
 	bool		hj_MatchedOuter;
 	bool		hj_OuterNotEmpty;
 } HashJoinState;
@@ -2698,6 +2681,9 @@ typedef struct HashState
 
 	FmgrInfo   *skew_hashfunction;	/* lookup data for skew hash function */
 	Oid			skew_collation; /* collation to call skew_hashfunction with */
+
+	Tuplestorestate *null_tuple_store;	/* where to put null-keyed tuples */
+	bool		keep_null_tuples;	/* do we need to save such tuples? */
 
 	/*
 	 * In a parallelized hash join, the leader retains a pointer to the

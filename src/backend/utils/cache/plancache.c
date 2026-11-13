@@ -184,7 +184,7 @@ InitPlanCache(void)
  * commandTag: command tag for query, or UNKNOWN if empty query
  */
 CachedPlanSource *
-CreateCachedPlan(RawStmt *raw_parse_tree,
+CreateCachedPlan(const RawStmt *raw_parse_tree,
 				 const char *query_string,
 				 CommandTag commandTag)
 {
@@ -2033,7 +2033,11 @@ ScanQueryForLocks(Query *parsetree, bool acquire)
 				break;
 
 			case RTE_SUBQUERY:
-				/* If this was a view, must lock/unlock the view */
+
+				/*
+				 * If this was a view or a property graph, must lock/unlock
+				 * it.
+				 */
 				if (OidIsValid(rte->relid))
 				{
 					if (acquire)

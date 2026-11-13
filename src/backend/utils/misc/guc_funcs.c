@@ -22,6 +22,7 @@
 #include "catalog/objectaccess.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_parameter_acl.h"
+#include "catalog/pg_type_d.h"
 #include "funcapi.h"
 #include "guc_internal.h"
 #include "miscadmin.h"
@@ -30,6 +31,7 @@
 #include "utils/builtins.h"
 #include "utils/guc_tables.h"
 #include "utils/snapmgr.h"
+#include "utils/tuplestore.h"
 
 static char *flatten_set_variable_args(const char *name, List *args);
 static void ShowGUCConfigOption(const char *name, DestReceiver *dest);
@@ -447,6 +449,7 @@ GetPGVariableResultDesc(const char *name)
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, varname,
 						   TEXTOID, -1, 0);
 	}
+	TupleDescFinalize(tupdesc);
 	return tupdesc;
 }
 
@@ -468,6 +471,7 @@ ShowGUCConfigOption(const char *name, DestReceiver *dest)
 	tupdesc = CreateTemplateTupleDesc(1);
 	TupleDescInitBuiltinEntry(tupdesc, (AttrNumber) 1, varname,
 							  TEXTOID, -1, 0);
+	TupleDescFinalize(tupdesc);
 
 	/* prepare for projection of tuples */
 	tstate = begin_tup_output_tupdesc(dest, tupdesc, &TTSOpsVirtual);
@@ -502,6 +506,7 @@ ShowAllGUCConfig(DestReceiver *dest)
 							  TEXTOID, -1, 0);
 	TupleDescInitBuiltinEntry(tupdesc, (AttrNumber) 3, "description",
 							  TEXTOID, -1, 0);
+	TupleDescFinalize(tupdesc);
 
 	/* prepare for projection of tuples */
 	tstate = begin_tup_output_tupdesc(dest, tupdesc, &TTSOpsVirtual);
@@ -936,6 +941,8 @@ show_all_settings(PG_FUNCTION_ARGS)
 						   INT4OID, -1, 0);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 17, "pending_restart",
 						   BOOLOID, -1, 0);
+
+		TupleDescFinalize(tupdesc);
 
 		/*
 		 * Generate attribute metadata needed later to produce tuples from raw

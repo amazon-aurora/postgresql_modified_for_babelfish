@@ -21,9 +21,11 @@
 #include "access/xlogutils.h"
 #include "funcapi.h"
 #include "miscadmin.h"
+#include "port/pg_bitutils.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/pg_lsn.h"
+#include "utils/tuplestore.h"
 
 /*
  * NOTE: For any code change or issue fix here, it is highly recommended to
@@ -97,6 +99,7 @@ InitXLogReaderState(XLogRecPtr lsn)
 	XLogReaderState *xlogreader;
 	ReadLocalXLogPageNoWaitPrivate *private_data;
 	XLogRecPtr	first_valid_record;
+	char	   *errormsg;
 
 	/*
 	 * Reading WAL below the first page of the first segments isn't allowed.
@@ -124,12 +127,19 @@ InitXLogReaderState(XLogRecPtr lsn)
 				 errdetail("Failed while allocating a WAL reading processor.")));
 
 	/* first find a valid recptr to start from */
-	first_valid_record = XLogFindNextRecord(xlogreader, lsn);
+	first_valid_record = XLogFindNextRecord(xlogreader, lsn, &errormsg);
 
 	if (!XLogRecPtrIsValid(first_valid_record))
-		ereport(ERROR,
-				errmsg("could not find a valid record after %X/%08X",
-					   LSN_FORMAT_ARGS(lsn)));
+	{
+		if (errormsg)
+			ereport(ERROR,
+					errmsg("could not find a valid record after %X/%08X: %s",
+						   LSN_FORMAT_ARGS(lsn), errormsg));
+		else
+			ereport(ERROR,
+					errmsg("could not find a valid record after %X/%08X",
+						   LSN_FORMAT_ARGS(lsn)));
+	}
 
 	return xlogreader;
 }

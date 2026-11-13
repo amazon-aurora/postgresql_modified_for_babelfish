@@ -37,6 +37,7 @@
 #include "access/visibilitymap.h"
 #include "catalog/pg_type.h"
 #include "executor/executor.h"
+#include "executor/instrument.h"
 #include "executor/nodeIndexonlyscan.h"
 #include "executor/nodeIndexscan.h"
 #include "miscadmin.h"
@@ -92,7 +93,7 @@ IndexOnlyNext(IndexOnlyScanState *node)
 		scandesc = index_beginscan(node->ss.ss_currentRelation,
 								   node->ioss_RelationDesc,
 								   estate->es_snapshot,
-								   &node->ioss_Instrument,
+								   node->ioss_Instrument,
 								   node->ioss_NumScanKeys,
 								   node->ioss_NumOrderByKeys);
 
@@ -423,7 +424,7 @@ ExecEndIndexOnlyScan(IndexOnlyScanState *node)
 	{
 		IndexScanInstrumentation *winstrument;
 
-		Assert(ParallelWorkerNumber <= node->ioss_SharedInfo->num_workers);
+		Assert(ParallelWorkerNumber < node->ioss_SharedInfo->num_workers);
 		winstrument = &node->ioss_SharedInfo->winstrument[ParallelWorkerNumber];
 
 		/*
@@ -432,7 +433,7 @@ ExecEndIndexOnlyScan(IndexOnlyScanState *node)
 		 * shutdown on the workers.  On rescan it will spin up new workers
 		 * which will have a new IndexOnlyScanState and zeroed stats.
 		 */
-		winstrument->nsearches += node->ioss_Instrument.nsearches;
+		winstrument->nsearches += node->ioss_Instrument->nsearches;
 	}
 
 	/*
@@ -567,7 +568,8 @@ ExecInitIndexOnlyScan(IndexOnlyScan *node, EState *estate, int eflags)
 	 */
 	tupDesc = ExecTypeFromTL(node->indextlist);
 	ExecInitScanTupleSlot(estate, &indexstate->ss, tupDesc,
-						  &TTSOpsVirtual);
+						  &TTSOpsVirtual,
+						  0);
 
 	/*
 	 * We need another slot, in a format that's suitable for the table AM, for
@@ -576,7 +578,7 @@ ExecInitIndexOnlyScan(IndexOnlyScan *node, EState *estate, int eflags)
 	indexstate->ioss_TableSlot =
 		ExecAllocTableSlot(&estate->es_tupleTable,
 						   RelationGetDescr(currentRelation),
-						   table_slot_callbacks(currentRelation));
+						   table_slot_callbacks(currentRelation), 0);
 
 	/*
 	 * Initialize result type and projection info.  The node's targetlist will
@@ -603,6 +605,10 @@ ExecInitIndexOnlyScan(IndexOnlyScan *node, EState *estate, int eflags)
 	 */
 	if (eflags & EXEC_FLAG_EXPLAIN_ONLY)
 		return indexstate;
+
+	/* Set up instrumentation of index-only scans if requested */
+	if (estate->es_instrument)
+		indexstate->ioss_Instrument = palloc0_object(IndexScanInstrumentation);
 
 	/* Open the index relation. */
 	lockmode = exec_rt_fetch(node->scan.scanrelid, estate)->rellockmode;
@@ -785,7 +791,7 @@ ExecIndexOnlyScanInitializeDSM(IndexOnlyScanState *node,
 	node->ioss_ScanDesc =
 		index_beginscan_parallel(node->ss.ss_currentRelation,
 								 node->ioss_RelationDesc,
-								 &node->ioss_Instrument,
+								 node->ioss_Instrument,
 								 node->ioss_NumScanKeys,
 								 node->ioss_NumOrderByKeys,
 								 piscan);
@@ -851,7 +857,7 @@ ExecIndexOnlyScanInitializeWorker(IndexOnlyScanState *node,
 	node->ioss_ScanDesc =
 		index_beginscan_parallel(node->ss.ss_currentRelation,
 								 node->ioss_RelationDesc,
-								 &node->ioss_Instrument,
+								 node->ioss_Instrument,
 								 node->ioss_NumScanKeys,
 								 node->ioss_NumOrderByKeys,
 								 piscan);

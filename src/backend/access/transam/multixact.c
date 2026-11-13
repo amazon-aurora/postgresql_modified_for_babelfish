@@ -313,8 +313,18 @@ static void mXactCachePut(MultiXactId multi, int nmembers,
 						  MultiXactMember *members);
 
 /* management of SLRU infrastructure */
+
+/* opaque_data type for MultiXactMemberIoErrorDetail */
+typedef struct MultiXactMemberSlruReadContext
+{
+	MultiXactId multi;
+	MultiXactOffset offset;
+} MultiXactMemberSlruReadContext;
+
 static bool MultiXactOffsetPagePrecedes(int64 page1, int64 page2);
 static bool MultiXactMemberPagePrecedes(int64 page1, int64 page2);
+static int	MultiXactOffsetIoErrorDetail(const void *opaque_data);
+static int	MultiXactMemberIoErrorDetail(const void *opaque_data);
 static void ExtendMultiXactOffset(MultiXactId multi);
 static void ExtendMultiXactMember(MultiXactOffset offset, int nmembers);
 static void SetOldestOffset(void);
@@ -829,14 +839,7 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 	lock = SimpleLruGetBankLock(MultiXactOffsetCtl, pageno);
 	LWLockAcquire(lock, LW_EXCLUSIVE);
 
-	/*
-	 * Note: we pass the MultiXactId to SimpleLruReadPage as the "transaction"
-	 * to complain about if there's any I/O error.  This is kinda bogus, but
-	 * since the errors will always give the full pathname, it should be clear
-	 * enough that a MultiXactId is really involved.  Perhaps someday we'll
-	 * take the trouble to generalize the slru.c error reporting code.
-	 */
-	slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, multi);
+	slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, &multi);
 	offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
 	offptr += entryno;
 
@@ -865,7 +868,7 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 		lock = SimpleLruGetBankLock(MultiXactOffsetCtl, next_pageno);
 		LWLockAcquire(lock, LW_EXCLUSIVE);
 
-		slotno = SimpleLruReadPage(MultiXactOffsetCtl, next_pageno, true, next);
+		slotno = SimpleLruReadPage(MultiXactOffsetCtl, next_pageno, true, &next);
 		next_offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
 		next_offptr += next_entryno;
 	}
@@ -905,6 +908,8 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 
 		if (pageno != prev_pageno)
 		{
+			MultiXactMemberSlruReadContext slru_read_context = {multi, offset};
+
 			/*
 			 * MultiXactMember SLRU page is changed so check if this new page
 			 * fall into the different SLRU bank then release the old bank's
@@ -919,7 +924,8 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 				LWLockAcquire(lock, LW_EXCLUSIVE);
 				prevlock = lock;
 			}
-			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true, multi);
+			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true,
+									   &slru_read_context);
 			prev_pageno = pageno;
 		}
 
@@ -1053,6 +1059,8 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 									   multiWrapLimit - result,
 									   oldest_datname,
 									   multiWrapLimit - result),
+						 errdetail("Approximately %.2f%% of MultiXactIds are available for use.",
+								   (double) (multiWrapLimit - result) / (MaxMultiXactId / 2) * 100),
 						 errhint("Execute a database-wide VACUUM in that database.\n"
 								 "You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
 			else
@@ -1062,6 +1070,8 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 									   multiWrapLimit - result,
 									   oldest_datoid,
 									   multiWrapLimit - result),
+						 errdetail("Approximately %.2f%% of MultiXactIds are available for use.",
+								   (double) (multiWrapLimit - result) / (MaxMultiXactId / 2) * 100),
 						 errhint("Execute a database-wide VACUUM in that database.\n"
 								 "You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
 		}
@@ -1244,7 +1254,7 @@ GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
 	LWLockAcquire(lock, LW_EXCLUSIVE);
 
 	/* read this multi's offset */
-	slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, multi);
+	slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, &multi);
 	offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
 	offptr += entryno;
 	offset = *offptr;
@@ -1282,7 +1292,7 @@ GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
 				LWLockAcquire(newlock, LW_EXCLUSIVE);
 				lock = newlock;
 			}
-			slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, tmpMXact);
+			slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, &tmpMXact);
 		}
 
 		offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
@@ -1331,6 +1341,7 @@ GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
 
 		if (pageno != prev_pageno)
 		{
+			MultiXactMemberSlruReadContext slru_read_context = {multi, offset};
 			LWLock	   *newlock;
 
 			/*
@@ -1346,8 +1357,8 @@ GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
 				LWLockAcquire(newlock, LW_EXCLUSIVE);
 				lock = newlock;
 			}
-
-			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true, multi);
+			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true,
+									   &slru_read_context);
 			prev_pageno = pageno;
 		}
 
@@ -1778,6 +1789,8 @@ MultiXactShmemInit(void)
 
 	MultiXactOffsetCtl->PagePrecedes = MultiXactOffsetPagePrecedes;
 	MultiXactMemberCtl->PagePrecedes = MultiXactMemberPagePrecedes;
+	MultiXactOffsetCtl->errdetail_for_io_error = MultiXactOffsetIoErrorDetail;
+	MultiXactMemberCtl->errdetail_for_io_error = MultiXactMemberIoErrorDetail;
 
 	SimpleLruInit(MultiXactOffsetCtl,
 				  "multixact_offset", multixact_offset_buffers, 0,
@@ -1928,7 +1941,7 @@ TrimMultiXact(void)
 		if (entryno == 0 || nextMXact == FirstMultiXactId)
 			slotno = SimpleLruZeroPage(MultiXactOffsetCtl, pageno);
 		else
-			slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, nextMXact);
+			slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, &nextMXact);
 		offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
 		offptr += entryno;
 
@@ -1956,6 +1969,7 @@ TrimMultiXact(void)
 	flagsoff = MXOffsetToFlagsOffset(offset);
 	if (flagsoff != 0)
 	{
+		MultiXactMemberSlruReadContext slru_read_context = {InvalidMultiXactId, offset};
 		int			slotno;
 		TransactionId *xidptr;
 		int			memberoff;
@@ -1963,7 +1977,7 @@ TrimMultiXact(void)
 
 		LWLockAcquire(lock, LW_EXCLUSIVE);
 		memberoff = MXOffsetToMemberOffset(offset);
-		slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true, offset);
+		slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true, &slru_read_context);
 		xidptr = (TransactionId *)
 			(MultiXactMemberCtl->shared->page_buffer[slotno] + memberoff);
 
@@ -2088,16 +2102,16 @@ SetMultiXactIdLimit(MultiXactId oldest_datminmxid, Oid oldest_datoid)
 		multiStopLimit -= FirstMultiXactId;
 
 	/*
-	 * We'll start complaining loudly when we get within 40M multis of data
+	 * We'll start complaining loudly when we get within 100M multis of data
 	 * loss.  This is kind of arbitrary, but if you let your gas gauge get
-	 * down to 2% of full, would you be looking for the next gas station?  We
+	 * down to 5% of full, would you be looking for the next gas station?  We
 	 * need to be fairly liberal about this number because there are lots of
 	 * scenarios where most transactions are done by automatic clients that
 	 * won't pay attention to warnings.  (No, we're not gonna make this
 	 * configurable.  If you know enough to configure it, you know enough to
 	 * not get in this kind of trouble in the first place.)
 	 */
-	multiWarnLimit = multiWrapLimit - 40000000;
+	multiWarnLimit = multiWrapLimit - 100000000;
 	if (multiWarnLimit < FirstMultiXactId)
 		multiWarnLimit -= FirstMultiXactId;
 
@@ -2186,6 +2200,8 @@ SetMultiXactIdLimit(MultiXactId oldest_datminmxid, Oid oldest_datoid)
 								   multiWrapLimit - curMulti,
 								   oldest_datname,
 								   multiWrapLimit - curMulti),
+					 errdetail("Approximately %.2f%% of MultiXactIds are available for use.",
+							   (double) (multiWrapLimit - curMulti) / (MaxMultiXactId / 2) * 100),
 					 errhint("To avoid MultiXactId assignment failures, execute a database-wide VACUUM in that database.\n"
 							 "You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
 		else
@@ -2195,6 +2211,8 @@ SetMultiXactIdLimit(MultiXactId oldest_datminmxid, Oid oldest_datoid)
 								   multiWrapLimit - curMulti,
 								   oldest_datoid,
 								   multiWrapLimit - curMulti),
+					 errdetail("Approximately %.2f%% of MultiXactIds are available for use.",
+							   (double) (multiWrapLimit - curMulti) / (MaxMultiXactId / 2) * 100),
 					 errhint("To avoid MultiXactId assignment failures, execute a database-wide VACUUM in that database.\n"
 							 "You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
 	}
@@ -2497,7 +2515,7 @@ find_multixact_start(MultiXactId multi, MultiXactOffset *result)
 		return false;
 
 	/* lock is acquired by SimpleLruReadPage_ReadOnly */
-	slotno = SimpleLruReadPage_ReadOnly(MultiXactOffsetCtl, pageno, multi);
+	slotno = SimpleLruReadPage_ReadOnly(MultiXactOffsetCtl, pageno, &multi);
 	offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
 	offptr += entryno;
 	offset = *offptr;
@@ -2808,6 +2826,27 @@ MultiXactMemberPagePrecedes(int64 page1, int64 page2)
 	return page1 < page2;
 }
 
+static int
+MultiXactOffsetIoErrorDetail(const void *opaque_data)
+{
+	MultiXactId multixid = *(const MultiXactId *) opaque_data;
+
+	return errdetail("Could not access offset of multixact %u.", multixid);
+}
+
+static int
+MultiXactMemberIoErrorDetail(const void *opaque_data)
+{
+	const MultiXactMemberSlruReadContext *context = opaque_data;
+
+	if (MultiXactIdIsValid(context->multi))
+		return errdetail("Could not access member of multixact %u at offset %" PRIu64 ".",
+						 context->multi, context->offset);
+	else
+		return errdetail("Could not access multixact member at offset %" PRIu64 ".",
+						 context->offset);
+}
+
 /*
  * Decide which of two MultiXactIds is earlier.
  *
@@ -2918,7 +2957,6 @@ multixact_redo(XLogReaderState *record)
 	else if (info == XLOG_MULTIXACT_TRUNCATE_ID)
 	{
 		xl_multixact_truncate xlrec;
-		int64		pageno;
 
 		memcpy(&xlrec, XLogRecGetData(record),
 			   SizeOfMultiXactTruncate);
@@ -2941,15 +2979,6 @@ multixact_redo(XLogReaderState *record)
 		SetMultiXactIdLimit(xlrec.oldestMulti, xlrec.oldestMultiDB);
 
 		PerformMembersTruncation(xlrec.oldestOffset);
-
-		/*
-		 * During XLOG replay, latest_page_number isn't necessarily set up
-		 * yet; insert a suitable value to bypass the sanity test in
-		 * SimpleLruTruncate.
-		 */
-		pageno = MultiXactIdToOffsetPage(xlrec.oldestMulti);
-		pg_atomic_write_u64(&MultiXactOffsetCtl->shared->latest_page_number,
-							pageno);
 		PerformOffsetsTruncation(xlrec.oldestMulti);
 
 		LWLockRelease(MultiXactTruncationLock);

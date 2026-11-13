@@ -34,6 +34,7 @@
 #include "access/tableam.h"
 #include "catalog/pg_am.h"
 #include "executor/executor.h"
+#include "executor/instrument.h"
 #include "executor/nodeIndexscan.h"
 #include "lib/pairingheap.h"
 #include "miscadmin.h"
@@ -42,6 +43,7 @@
 #include "utils/datum.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
+#include "utils/sortsupport.h"
 
 /*
  * When an ordering operator is used, tuples fetched from the index that
@@ -109,7 +111,7 @@ IndexNext(IndexScanState *node)
 		scandesc = index_beginscan(node->ss.ss_currentRelation,
 								   node->iss_RelationDesc,
 								   estate->es_snapshot,
-								   &node->iss_Instrument,
+								   node->iss_Instrument,
 								   node->iss_NumScanKeys,
 								   node->iss_NumOrderByKeys);
 
@@ -205,7 +207,7 @@ IndexNextWithReorder(IndexScanState *node)
 		scandesc = index_beginscan(node->ss.ss_currentRelation,
 								   node->iss_RelationDesc,
 								   estate->es_snapshot,
-								   &node->iss_Instrument,
+								   node->iss_Instrument,
 								   node->iss_NumScanKeys,
 								   node->iss_NumOrderByKeys);
 
@@ -802,7 +804,7 @@ ExecEndIndexScan(IndexScanState *node)
 	{
 		IndexScanInstrumentation *winstrument;
 
-		Assert(ParallelWorkerNumber <= node->iss_SharedInfo->num_workers);
+		Assert(ParallelWorkerNumber < node->iss_SharedInfo->num_workers);
 		winstrument = &node->iss_SharedInfo->winstrument[ParallelWorkerNumber];
 
 		/*
@@ -811,7 +813,7 @@ ExecEndIndexScan(IndexScanState *node)
 		 * shutdown on the workers.  On rescan it will spin up new workers
 		 * which will have a new IndexOnlyScanState and zeroed stats.
 		 */
-		winstrument->nsearches += node->iss_Instrument.nsearches;
+		winstrument->nsearches += node->iss_Instrument->nsearches;
 	}
 
 	/*
@@ -938,7 +940,8 @@ ExecInitIndexScan(IndexScan *node, EState *estate, int eflags)
 	 */
 	ExecInitScanTupleSlot(estate, &indexstate->ss,
 						  RelationGetDescr(currentRelation),
-						  table_slot_callbacks(currentRelation));
+						  table_slot_callbacks(currentRelation),
+						  TTS_FLAG_OBEYS_NOT_NULL_CONSTRAINTS);
 
 	/*
 	 * Initialize result type and projection.
@@ -970,6 +973,10 @@ ExecInitIndexScan(IndexScan *node, EState *estate, int eflags)
 	 */
 	if (eflags & EXEC_FLAG_EXPLAIN_ONLY)
 		return indexstate;
+
+	/* Set up instrumentation of index scans if requested */
+	if (estate->es_instrument)
+		indexstate->iss_Instrument = palloc0_object(IndexScanInstrumentation);
 
 	/* Open the index relation. */
 	lockmode = exec_rt_fetch(node->scan.scanrelid, estate)->rellockmode;
@@ -1720,7 +1727,7 @@ ExecIndexScanInitializeDSM(IndexScanState *node,
 	node->iss_ScanDesc =
 		index_beginscan_parallel(node->ss.ss_currentRelation,
 								 node->iss_RelationDesc,
-								 &node->iss_Instrument,
+								 node->iss_Instrument,
 								 node->iss_NumScanKeys,
 								 node->iss_NumOrderByKeys,
 								 piscan);
@@ -1784,7 +1791,7 @@ ExecIndexScanInitializeWorker(IndexScanState *node,
 	node->iss_ScanDesc =
 		index_beginscan_parallel(node->ss.ss_currentRelation,
 								 node->iss_RelationDesc,
-								 &node->iss_Instrument,
+								 node->iss_Instrument,
 								 node->iss_NumScanKeys,
 								 node->iss_NumOrderByKeys,
 								 piscan);

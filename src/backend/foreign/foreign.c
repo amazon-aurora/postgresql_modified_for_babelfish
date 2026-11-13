@@ -28,6 +28,7 @@
 #include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
+#include "utils/tuplestore.h"
 #include "utils/varlena.h"
 
 
@@ -225,7 +226,7 @@ ForeignServerConnectionString(Oid userid, Oid serverid)
 {
 	MemoryContext tempContext;
 	MemoryContext oldcxt;
-	volatile text *connection_text = NULL;
+	text	   *volatile connection_text = NULL;
 	char	   *result = NULL;
 
 	/*
@@ -250,7 +251,8 @@ ForeignServerConnectionString(Oid userid, Oid serverid)
 
 		if (!OidIsValid(fdw->fdwconnection))
 			ereport(ERROR,
-					(errmsg("foreign data wrapper \"%s\" does not support subscription connections",
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("foreign data wrapper \"%s\" does not support subscription connections",
 							fdw->fdwname),
 					 errdetail("Foreign data wrapper must be defined with CONNECTION specified.")));
 

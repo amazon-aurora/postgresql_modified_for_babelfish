@@ -30,8 +30,8 @@
 #include "utils/snapmgr.h"
 
 static void pcb_error_callback(void *arg);
-static Oid lookup_varbinary_oid();
-static Oid lookup_varbinaryin_funcoid();
+static Oid lookup_varbinary_oid(void);
+static Oid lookup_varbinaryin_funcoid(void);
 
 static Oid varbinary_oid = InvalidOid;
 static PGFunction varbinaryin_funcaddr = NULL;
@@ -189,7 +189,7 @@ pcb_error_callback(void *arg)
  * Return InvalidOid if it doesn't exist.
  */
 static Oid
-lookup_varbinary_oid()
+lookup_varbinary_oid(void)
 {
 	int rc;
 	bool snapshot_set;
@@ -252,7 +252,7 @@ lookup_varbinary_oid()
  * Return InvalidOid if it doesn't exist.
  */
 static Oid
-lookup_varbinaryin_funcoid()
+lookup_varbinaryin_funcoid(void)
 {
 	int rc;
 	bool snapshot_set;

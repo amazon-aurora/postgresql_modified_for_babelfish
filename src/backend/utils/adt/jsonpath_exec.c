@@ -59,6 +59,8 @@
 
 #include "postgres.h"
 
+#include <limits.h>
+
 #include "catalog/pg_collation.h"
 #include "catalog/pg_type.h"
 #include "funcapi.h"
@@ -143,19 +145,46 @@ typedef enum JsonPathExecResult
 #define jperIsError(jper)			((jper) == jperError)
 
 /*
- * List of jsonb values with shortcut for single-value list.
+ * List (or really array) of JsonbValues.  This is the output representation
+ * of jsonpath evaluation.
+ *
+ * The initial or "base" chunk of a list is typically a local variable in
+ * a calling function.  If we need more entries than will fit in the base
+ * chunk, we palloc more chunks.  For notational simplicity, those are also
+ * treated as being of type JsonValueList, although they will have items[]
+ * arrays that are larger than BASE_JVL_ITEMS.
+ *
+ * Callers *must* initialize the base chunk with JsonValueListInit().
+ * Typically they should free any extra chunks when done, using
+ * JsonValueListClear(), although some top-level functions skip that
+ * on the assumption that the caller's context will be reset soon.
+ *
+ * Note that most types of JsonbValue include pointers to external data, which
+ * will not be managed by the JsonValueList functions.  We expect that such
+ * data is part of the input to the jsonpath operation, and the caller will
+ * see to it that it holds still for the duration of the operation.
+ *
+ * Most lists are short, though some can be quite long.  So we set
+ * BASE_JVL_ITEMS small to conserve stack space, but grow the extra
+ * chunks aggressively.
  */
+#define BASE_JVL_ITEMS 2		/* number of items a base chunk holds */
+#define MIN_EXTRA_JVL_ITEMS 16	/* min number of items an extra chunk holds */
+
 typedef struct JsonValueList
 {
-	JsonbValue *singleton;
-	List	   *list;
+	int			nitems;			/* number of items stored in this chunk */
+	int			maxitems;		/* allocated length of items[] */
+	struct JsonValueList *next; /* => next chunk, if any */
+	struct JsonValueList *last; /* => last chunk (only valid in base chunk) */
+	JsonbValue	items[BASE_JVL_ITEMS];
 } JsonValueList;
 
+/* State data for iterating through a JsonValueList */
 typedef struct JsonValueListIterator
 {
-	JsonbValue *value;
-	List	   *list;
-	ListCell   *next;
+	JsonValueList *chunk;		/* current chunk of list */
+	int			nextitem;		/* index of next value to return in chunk */
 } JsonValueListIterator;
 
 /* Structures for JSON_TABLE execution  */
@@ -271,7 +300,7 @@ static JsonPathExecResult executeItemUnwrapTargetArray(JsonPathExecContext *cxt,
 													   JsonValueList *found, bool unwrapElements);
 static JsonPathExecResult executeNextItem(JsonPathExecContext *cxt,
 										  JsonPathItem *cur, JsonPathItem *next,
-										  JsonbValue *v, JsonValueList *found, bool copy);
+										  JsonbValue *v, JsonValueList *found);
 static JsonPathExecResult executeItemOptUnwrapResult(JsonPathExecContext *cxt, JsonPathItem *jsp, JsonbValue *jb,
 													 bool unwrap, JsonValueList *found);
 static JsonPathExecResult executeItemOptUnwrapResultNoThrow(JsonPathExecContext *cxt, JsonPathItem *jsp,
@@ -333,20 +362,20 @@ static JsonPathExecResult getArrayIndex(JsonPathExecContext *cxt,
 										JsonPathItem *jsp, JsonbValue *jb, int32 *index);
 static JsonBaseObjectInfo setBaseObject(JsonPathExecContext *cxt,
 										JsonbValue *jbv, int32 id);
+static void JsonValueListInit(JsonValueList *jvl);
 static void JsonValueListClear(JsonValueList *jvl);
-static void JsonValueListAppend(JsonValueList *jvl, JsonbValue *jbv);
-static int	JsonValueListLength(const JsonValueList *jvl);
-static bool JsonValueListIsEmpty(JsonValueList *jvl);
+static void JsonValueListAppend(JsonValueList *jvl, const JsonbValue *jbv);
+static bool JsonValueListIsEmpty(const JsonValueList *jvl);
+static bool JsonValueListIsSingleton(const JsonValueList *jvl);
+static bool JsonValueListHasMultipleItems(const JsonValueList *jvl);
 static JsonbValue *JsonValueListHead(JsonValueList *jvl);
-static List *JsonValueListGetList(JsonValueList *jvl);
-static void JsonValueListInitIterator(const JsonValueList *jvl,
+static void JsonValueListInitIterator(JsonValueList *jvl,
 									  JsonValueListIterator *it);
-static JsonbValue *JsonValueListNext(const JsonValueList *jvl,
-									 JsonValueListIterator *it);
+static JsonbValue *JsonValueListNext(JsonValueListIterator *it);
 static JsonbValue *JsonbInitBinary(JsonbValue *jbv, Jsonb *jb);
 static int	JsonbType(JsonbValue *jb);
 static JsonbValue *getScalar(JsonbValue *scalar, enum jbvType type);
-static JsonbValue *wrapItemsInArray(const JsonValueList *items);
+static JsonbValue *wrapItemsInArray(JsonValueList *items);
 static int	compareDatetime(Datum val1, Oid typid1, Datum val2, Oid typid2,
 							bool useTz, bool *cast_error);
 static void checkTimezoneIsUsedForCast(bool useTz, const char *type1,
@@ -457,15 +486,17 @@ jsonb_path_match_internal(FunctionCallInfo fcinfo, bool tz)
 {
 	Jsonb	   *jb = PG_GETARG_JSONB_P(0);
 	JsonPath   *jp = PG_GETARG_JSONPATH_P(1);
-	JsonValueList found = {0};
 	Jsonb	   *vars = NULL;
 	bool		silent = true;
+	JsonValueList found;
 
 	if (PG_NARGS() == 4)
 	{
 		vars = PG_GETARG_JSONB_P(2);
 		silent = PG_GETARG_BOOL(3);
 	}
+
+	JsonValueListInit(&found);
 
 	(void) executeJsonPath(jp, vars, getJsonPathVariableFromJsonb,
 						   countVariablesFromJsonb,
@@ -474,7 +505,7 @@ jsonb_path_match_internal(FunctionCallInfo fcinfo, bool tz)
 	PG_FREE_IF_COPY(jb, 0);
 	PG_FREE_IF_COPY(jp, 1);
 
-	if (JsonValueListLength(&found) == 1)
+	if (JsonValueListIsSingleton(&found))
 	{
 		JsonbValue *jbv = JsonValueListHead(&found);
 
@@ -526,18 +557,17 @@ static Datum
 jsonb_path_query_internal(FunctionCallInfo fcinfo, bool tz)
 {
 	FuncCallContext *funcctx;
-	List	   *found;
+	JsonValueListIterator *iter;
 	JsonbValue *v;
-	ListCell   *c;
 
 	if (SRF_IS_FIRSTCALL())
 	{
 		JsonPath   *jp;
 		Jsonb	   *jb;
-		MemoryContext oldcontext;
 		Jsonb	   *vars;
 		bool		silent;
-		JsonValueList found = {0};
+		MemoryContext oldcontext;
+		JsonValueList *found;
 
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
@@ -547,25 +577,28 @@ jsonb_path_query_internal(FunctionCallInfo fcinfo, bool tz)
 		vars = PG_GETARG_JSONB_P_COPY(2);
 		silent = PG_GETARG_BOOL(3);
 
+		found = palloc_object(JsonValueList);
+		JsonValueListInit(found);
+
 		(void) executeJsonPath(jp, vars, getJsonPathVariableFromJsonb,
 							   countVariablesFromJsonb,
-							   jb, !silent, &found, tz);
+							   jb, !silent, found, tz);
 
-		funcctx->user_fctx = JsonValueListGetList(&found);
+		iter = palloc_object(JsonValueListIterator);
+		JsonValueListInitIterator(found, iter);
+
+		funcctx->user_fctx = iter;
 
 		MemoryContextSwitchTo(oldcontext);
 	}
 
 	funcctx = SRF_PERCALL_SETUP();
-	found = funcctx->user_fctx;
+	iter = funcctx->user_fctx;
 
-	c = list_head(found);
+	v = JsonValueListNext(iter);
 
-	if (c == NULL)
+	if (v == NULL)
 		SRF_RETURN_DONE(funcctx);
-
-	v = lfirst(c);
-	funcctx->user_fctx = list_delete_first(found);
 
 	SRF_RETURN_NEXT(funcctx, JsonbPGetDatum(JsonbValueToJsonb(v)));
 }
@@ -598,8 +631,10 @@ tsql_openjson_with_get_subjsonb(PG_FUNCTION_ARGS)
 					*vars;
 	JsonPath		*jp;
 	JsonPathItem    jsp;
-	JsonValueList 	found = {0};
+	JsonValueList 	found;
 	bool 			islax;
+
+	JsonValueListInit(&found);
 
 	json_text = PG_GETARG_TEXT_PP(0);
 	jb = (Jsonb *) DirectFunctionCall1(jsonb_in, CStringGetDatum(text_to_cstring(json_text)));
@@ -619,7 +654,7 @@ tsql_openjson_with_get_subjsonb(PG_FUNCTION_ARGS)
 						   countVariablesFromJsonb,
 						   jb, false, &found, false);
 
-	if (JsonValueListLength(&found) >= 1) {
+	if (!JsonValueListIsEmpty(&found)) {
 		JsonbValue *jv = JsonValueListHead(&found);
 		/*
 		 * List may contain NULL values
@@ -656,7 +691,7 @@ tsql_openjson_with_columnize(Jsonb *jb, char *col_info)
 	List 			*list;
 	Jsonb			*vars = (Jsonb *) DirectFunctionCall1(jsonb_in, CStringGetDatum("{}"));
 	JsonPath		*jp;
-	JsonValueList 	found = {0};
+	JsonValueList 	found;
 	int				col_size = INT_MAX; /* keep track of the column's size if declared */
 
 	/* extract column info */
@@ -666,6 +701,9 @@ tsql_openjson_with_columnize(Jsonb *jb, char *col_info)
 	bool	strict,
 			as,
 			asjson;
+
+	JsonValueListInit(&found);
+
 	col_path = NULL; col_type = NULL; strict = false; as = false; asjson = false;
 	token = strtok(col_info, " ");
 
@@ -747,21 +785,25 @@ tsql_openjson_with_columnize(Jsonb *jb, char *col_info)
 						   countVariablesFromJsonb,
 						   jb, false, &found, false);
 
-	list = JsonValueListGetList(&found);
+	list = NIL;
 	/* go through found and convert values to strings. Truncate as necessary based on col_size */
-	if (list != NIL)
+	if (!JsonValueListIsEmpty(&found))
 	{
-		ListCell	*lc;
-		foreach(lc, list)
+		JsonValueListIterator it;
+		JsonbValue	*v;
+		JsonValueListInitIterator(&found, &it);
+		while ((v = JsonValueListNext(&it)) != NULL)
 		{
-			JsonbValue	*v = lc->ptr_value;
 			Jsonb		*jsonb;
 			char 		*json_str;
 			int			len = 0,
 						numchars = 0;
 
 			if (v == NULL)
+			{
+				list = lappend(list, NULL);
 				continue;
+			}
 			jsonb = JsonbValueToJsonb(v);
 			if (v->type == jbvNull) /* SQL Server treats json nulls as SQL NULLs */
 				jsonb = NULL;
@@ -786,15 +828,15 @@ tsql_openjson_with_columnize(Jsonb *jb, char *col_info)
 				}
 				len++;
 			}
-			/* fill in lc with either the string value or NULL */
+			/* append either the string value or NULL to the result list */
 			if (jsonb == NULL)
-				lc->ptr_value = NULL;
+				list = lappend(list, NULL);
 			else
 			{
-				lc->ptr_value = palloc0(len);
-				snprintf(lc->ptr_value, len, "%s", json_str);
+				char *str = palloc0(len);
+				snprintf(str, len, "%s", json_str);
+				list = lappend(list, str);
 			}
-			pfree(v);
 		}
 	}
 
@@ -811,9 +853,11 @@ jsonb_path_query_array_internal(FunctionCallInfo fcinfo, bool tz)
 {
 	Jsonb	   *jb = PG_GETARG_JSONB_P(0);
 	JsonPath   *jp = PG_GETARG_JSONPATH_P(1);
-	JsonValueList found = {0};
 	Jsonb	   *vars = PG_GETARG_JSONB_P(2);
 	bool		silent = PG_GETARG_BOOL(3);
+	JsonValueList found;
+
+	JsonValueListInit(&found);
 
 	(void) executeJsonPath(jp, vars, getJsonPathVariableFromJsonb,
 						   countVariablesFromJsonb,
@@ -844,17 +888,19 @@ jsonb_path_query_first_internal(FunctionCallInfo fcinfo, bool tz)
 {
 	Jsonb	   *jb = PG_GETARG_JSONB_P(0);
 	JsonPath   *jp = PG_GETARG_JSONPATH_P(1);
-	JsonValueList found = {0};
 	Jsonb	   *vars = PG_GETARG_JSONB_P(2);
 	bool		silent = PG_GETARG_BOOL(3);
+	JsonValueList found;
+
+	JsonValueListInit(&found);
 
 	(void) executeJsonPath(jp, vars, getJsonPathVariableFromJsonb,
 						   countVariablesFromJsonb,
 						   jb, !silent, &found, tz);
 
-	if (JsonValueListLength(&found) >= 1)
+	if (!JsonValueListIsEmpty(&found))
 	{
-		if (found.singleton || linitial(found.list)) /* need to handle case of a null value in the list */
+		if (JsonValueListHead(&found)) /* need to handle case of a null value in the list */
 			PG_RETURN_JSONB_P(JsonbValueToJsonb(JsonValueListHead(&found)));
 		else
 			PG_RETURN_NULL();
@@ -935,14 +981,20 @@ executeJsonPath(JsonPath *path, void *vars, JsonPathGetVarCallback getVar,
 		 * In strict mode we must get a complete list of values to check that
 		 * there are no errors at all.
 		 */
-		JsonValueList vals = {0};
+		JsonValueList vals;
+		bool		isempty;
+
+		JsonValueListInit(&vals);
 
 		res = executeItem(&cxt, &jsp, &jbv, &vals);
+
+		isempty = JsonValueListIsEmpty(&vals);
+		JsonValueListClear(&vals);
 
 		if (jperIsError(res))
 			return res;
 
-		return JsonValueListIsEmpty(&vals) ? jperNotFound : jperOk;
+		return isempty ? jperNotFound : jperOk;
 	}
 
 	res = executeItem(&cxt, &jsp, &jbv, result);
@@ -986,8 +1038,7 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 		case jpiString:
 		case jpiVariable:
 			{
-				JsonbValue	vbuf;
-				JsonbValue *v;
+				JsonbValue	v;
 				bool		hasNext = jspGetNext(jsp, &elem);
 
 				if (!hasNext && !found && jsp->type != jpiVariable)
@@ -1000,13 +1051,11 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 					break;
 				}
 
-				v = hasNext ? &vbuf : palloc_object(JsonbValue);
-
 				baseObject = cxt->baseObject;
-				getJsonPathItem(cxt, jsp, v);
+				getJsonPathItem(cxt, jsp, &v);
 
 				res = executeNextItem(cxt, jsp, &elem,
-									  v, found, hasNext);
+									  &v, found);
 				cxt->baseObject = baseObject;
 			}
 			break;
@@ -1068,7 +1117,7 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 												   jb, found, jspAutoUnwrap(cxt));
 			}
 			else if (jspAutoWrap(cxt))
-				res = executeNextItem(cxt, jsp, NULL, jb, found, true);
+				res = executeNextItem(cxt, jsp, NULL, jb, found);
 			else if (!jspIgnoreStructuralErrors(cxt))
 				RETURN_ERROR(ereport(ERROR,
 									 (errcode(ERRCODE_SQL_JSON_ARRAY_NOT_FOUND),
@@ -1167,12 +1216,10 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 					for (index = index_from; index <= index_to; index++)
 					{
 						JsonbValue *v;
-						bool		copy;
 
 						if (singleton)
 						{
 							v = jb;
-							copy = true;
 						}
 						else
 						{
@@ -1181,15 +1228,12 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 
 							if (v == NULL)
 								continue;
-
-							copy = false;
 						}
 
 						if (!hasNext && !found)
 							return jperOk;
 
-						res = executeNextItem(cxt, jsp, &elem, v, found,
-											  copy);
+						res = executeNextItem(cxt, jsp, &elem, v, found);
 
 						if (jperIsError(res))
 							break;
@@ -1227,7 +1271,7 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 					savedIgnoreStructuralErrors = cxt->ignoreStructuralErrors;
 					cxt->ignoreStructuralErrors = true;
 					res = executeNextItem(cxt, jsp, &elem,
-										  jb, found, true);
+										  jb, found);
 					cxt->ignoreStructuralErrors = savedIgnoreStructuralErrors;
 
 					if (res == jperOk && !found)
@@ -1260,11 +1304,8 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 				if (v != NULL)
 				{
 					res = executeNextItem(cxt, jsp, NULL,
-										  v, found, false);
-
-					/* free value if it was not added to found list */
-					if (jspHasNext(jsp) || !found)
-						pfree(v);
+										  v, found);
+					pfree(v);
 				}
 				else if (!jspIgnoreStructuralErrors(cxt))
 				{
@@ -1279,19 +1320,11 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 									pnstrdup(key.val.string.val,
 											 key.val.string.len))));
 				}
-				else if (found && sql_dialect == SQL_DIALECT_TSQL) /* in TSQL JSON functions, missing values are filled with NULL so we need to keep searching */
+				else if (found && sql_dialect == SQL_DIALECT_TSQL)
 				{
-					if (found->singleton)
-					{
-						found->list = list_make2(found->singleton, NULL);
-						found->singleton = NULL;
-					}
-					else if (found->list)
-						found->list = lappend(found->list, NULL);
-					else {
-						/* Since JsonValueList uses a NULL singleton as shortcut, need to manually insert null value into list */
-						found->list = list_make1(NULL);
-					}
+					JsonbValue	null_jbv;
+					null_jbv.type = jbvNull;
+					JsonValueListAppend(found, &null_jbv);
 					res = jperOk;
 				}
 			}
@@ -1307,14 +1340,13 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 			break;
 
 		case jpiCurrent:
-			res = executeNextItem(cxt, jsp, NULL, cxt->current,
-								  found, true);
+			res = executeNextItem(cxt, jsp, NULL, cxt->current, found);
 			break;
 
 		case jpiRoot:
 			jb = cxt->root;
 			baseObject = setBaseObject(cxt, jb, 0);
-			res = executeNextItem(cxt, jsp, NULL, jb, found, true);
+			res = executeNextItem(cxt, jsp, NULL, jb, found);
 			cxt->baseObject = baseObject;
 			break;
 
@@ -1332,26 +1364,26 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 					res = jperNotFound;
 				else
 					res = executeNextItem(cxt, jsp, NULL,
-										  jb, found, true);
+										  jb, found);
 				break;
 			}
 
 		case jpiType:
 			{
-				JsonbValue *jbv = palloc_object(JsonbValue);
+				JsonbValue	jbv;
 
-				jbv->type = jbvString;
-				jbv->val.string.val = pstrdup(JsonbTypeName(jb));
-				jbv->val.string.len = strlen(jbv->val.string.val);
+				jbv.type = jbvString;
+				jbv.val.string.val = pstrdup(JsonbTypeName(jb));
+				jbv.val.string.len = strlen(jbv.val.string.val);
 
-				res = executeNextItem(cxt, jsp, NULL, jbv,
-									  found, false);
+				res = executeNextItem(cxt, jsp, NULL, &jbv, found);
 			}
 			break;
 
 		case jpiSize:
 			{
 				int			size = JsonbArraySize(jb);
+				JsonbValue	jbv;
 
 				if (size < 0)
 				{
@@ -1368,12 +1400,10 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 					size = 1;
 				}
 
-				jb = palloc_object(JsonbValue);
+				jbv.type = jbvNumeric;
+				jbv.val.numeric = int64_to_numeric(size);
 
-				jb->type = jbvNumeric;
-				jb->val.numeric = int64_to_numeric(size);
-
-				res = executeNextItem(cxt, jsp, NULL, jb, found, false);
+				res = executeNextItem(cxt, jsp, NULL, &jbv, found);
 			}
 			break;
 
@@ -1460,7 +1490,7 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 										  errmsg("jsonpath item method .%s() can only be applied to a string or numeric value",
 												 jspOperationName(jsp->type)))));
 
-				res = executeNextItem(cxt, jsp, NULL, jb, found, true);
+				res = executeNextItem(cxt, jsp, NULL, jb, found);
 			}
 			break;
 
@@ -1483,8 +1513,7 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 
 		case jpiLast:
 			{
-				JsonbValue	tmpjbv;
-				JsonbValue *lastjbv;
+				JsonbValue	jbv;
 				int			last;
 				bool		hasNext = jspGetNext(jsp, &elem);
 
@@ -1499,13 +1528,11 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 
 				last = cxt->innermostArraySize - 1;
 
-				lastjbv = hasNext ? &tmpjbv : palloc_object(JsonbValue);
-
-				lastjbv->type = jbvNumeric;
-				lastjbv->val.numeric = int64_to_numeric(last);
+				jbv.type = jbvNumeric;
+				jbv.val.numeric = int64_to_numeric(last);
 
 				res = executeNextItem(cxt, jsp, &elem,
-									  lastjbv, found, hasNext);
+									  &jbv, found);
 			}
 			break;
 
@@ -1564,12 +1591,11 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 										  errmsg("jsonpath item method .%s() can only be applied to a string or numeric value",
 												 jspOperationName(jsp->type)))));
 
-				jb = &jbv;
-				jb->type = jbvNumeric;
-				jb->val.numeric = DatumGetNumeric(DirectFunctionCall1(int8_numeric,
+				jbv.type = jbvNumeric;
+				jbv.val.numeric = DatumGetNumeric(DirectFunctionCall1(int8_numeric,
 																	  datum));
 
-				res = executeNextItem(cxt, jsp, NULL, jb, found, true);
+				res = executeNextItem(cxt, jsp, NULL, &jbv, found);
 			}
 			break;
 
@@ -1637,11 +1663,10 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 										  errmsg("jsonpath item method .%s() can only be applied to a boolean, string, or numeric value",
 												 jspOperationName(jsp->type)))));
 
-				jb = &jbv;
-				jb->type = jbvBool;
-				jb->val.boolean = bval;
+				jbv.type = jbvBool;
+				jbv.val.boolean = bval;
 
-				res = executeNextItem(cxt, jsp, NULL, jb, found, true);
+				res = executeNextItem(cxt, jsp, NULL, &jbv, found);
 			}
 			break;
 
@@ -1782,11 +1807,10 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 					pfree(arrtypmod);
 				}
 
-				jb = &jbv;
-				jb->type = jbvNumeric;
-				jb->val.numeric = num;
+				jbv.type = jbvNumeric;
+				jbv.val.numeric = num;
 
-				res = executeNextItem(cxt, jsp, NULL, jb, found, true);
+				res = executeNextItem(cxt, jsp, NULL, &jbv, found);
 			}
 			break;
 
@@ -1844,12 +1868,11 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 										  errmsg("jsonpath item method .%s() can only be applied to a string or numeric value",
 												 jspOperationName(jsp->type)))));
 
-				jb = &jbv;
-				jb->type = jbvNumeric;
-				jb->val.numeric = DatumGetNumeric(DirectFunctionCall1(int4_numeric,
+				jbv.type = jbvNumeric;
+				jbv.val.numeric = DatumGetNumeric(DirectFunctionCall1(int4_numeric,
 																	  datum));
 
-				res = executeNextItem(cxt, jsp, NULL, jb, found, true);
+				res = executeNextItem(cxt, jsp, NULL, &jbv, found);
 			}
 			break;
 
@@ -1901,13 +1924,12 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 						break;
 				}
 
-				jb = &jbv;
 				Assert(tmp != NULL);	/* We must have set tmp above */
-				jb->val.string.val = tmp;
-				jb->val.string.len = strlen(jb->val.string.val);
-				jb->type = jbvString;
+				jbv.val.string.val = tmp;
+				jbv.val.string.len = strlen(jbv.val.string.val);
+				jbv.type = jbvString;
 
-				res = executeNextItem(cxt, jsp, NULL, jb, found, true);
+				res = executeNextItem(cxt, jsp, NULL, &jbv, found);
 			}
 			break;
 
@@ -1944,7 +1966,7 @@ executeItemUnwrapTargetArray(JsonPathExecContext *cxt, JsonPathItem *jsp,
 static JsonPathExecResult
 executeNextItem(JsonPathExecContext *cxt,
 				JsonPathItem *cur, JsonPathItem *next,
-				JsonbValue *v, JsonValueList *found, bool copy)
+				JsonbValue *v, JsonValueList *found)
 {
 	JsonPathItem elem;
 	bool		hasNext;
@@ -1963,7 +1985,7 @@ executeNextItem(JsonPathExecContext *cxt,
 		return executeItem(cxt, next, v, found);
 
 	if (found)
-		JsonValueListAppend(found, copy ? copyJsonbValue(v) : v);
+		JsonValueListAppend(found, v);
 
 	return jperOk;
 }
@@ -1979,16 +2001,23 @@ executeItemOptUnwrapResult(JsonPathExecContext *cxt, JsonPathItem *jsp,
 {
 	if (unwrap && jspAutoUnwrap(cxt))
 	{
-		JsonValueList seq = {0};
+		JsonValueList seq;
 		JsonValueListIterator it;
-		JsonPathExecResult res = executeItem(cxt, jsp, jb, &seq);
+		JsonPathExecResult res;
 		JsonbValue *item;
 
+		JsonValueListInit(&seq);
+
+		res = executeItem(cxt, jsp, jb, &seq);
+
 		if (jperIsError(res))
+		{
+			JsonValueListClear(&seq);
 			return res;
+		}
 
 		JsonValueListInitIterator(&seq, &it);
-		while ((item = JsonValueListNext(&seq, &it)))
+		while ((item = JsonValueListNext(&it)))
 		{
 			Assert(item->type != jbvArray);
 
@@ -1997,6 +2026,8 @@ executeItemOptUnwrapResult(JsonPathExecContext *cxt, JsonPathItem *jsp,
 			else
 				JsonValueListAppend(found, item);
 		}
+
+		JsonValueListClear(&seq);
 
 		return jperOk;
 	}
@@ -2128,15 +2159,22 @@ executeBoolItem(JsonPathExecContext *cxt, JsonPathItem *jsp,
 				 * In strict mode we must get a complete list of values to
 				 * check that there are no errors at all.
 				 */
-				JsonValueList vals = {0};
-				JsonPathExecResult res =
-					executeItemOptUnwrapResultNoThrow(cxt, &larg, jb,
-													  false, &vals);
+				JsonValueList vals;
+				JsonPathExecResult res;
+				bool		isempty;
+
+				JsonValueListInit(&vals);
+
+				res = executeItemOptUnwrapResultNoThrow(cxt, &larg, jb,
+														false, &vals);
+
+				isempty = JsonValueListIsEmpty(&vals);
+				JsonValueListClear(&vals);
 
 				if (jperIsError(res))
 					return jpbUnknown;
 
-				return JsonValueListIsEmpty(&vals) ? jpbFalse : jpbTrue;
+				return isempty ? jpbFalse : jpbTrue;
 			}
 			else
 			{
@@ -2238,7 +2276,7 @@ executeAnyItem(JsonPathExecContext *cxt, JsonPathItem *jsp, JsonbContainer *jbc,
 						break;
 				}
 				else if (found)
-					JsonValueListAppend(found, copyJsonbValue(&v));
+					JsonValueListAppend(found, &v);
 				else
 					return jperOk;
 			}
@@ -2280,16 +2318,22 @@ executePredicate(JsonPathExecContext *cxt, JsonPathItem *pred,
 {
 	JsonPathExecResult res;
 	JsonValueListIterator lseqit;
-	JsonValueList lseq = {0};
-	JsonValueList rseq = {0};
+	JsonValueList lseq;
+	JsonValueList rseq;
 	JsonbValue *lval;
 	bool		error = false;
 	bool		found = false;
 
+	JsonValueListInit(&lseq);
+	JsonValueListInit(&rseq);
+
 	/* Left argument is always auto-unwrapped. */
 	res = executeItemOptUnwrapResultNoThrow(cxt, larg, jb, true, &lseq);
 	if (jperIsError(res))
-		return jpbUnknown;
+	{
+		error = true;
+		goto exit;
+	}
 
 	if (rarg)
 	{
@@ -2297,11 +2341,14 @@ executePredicate(JsonPathExecContext *cxt, JsonPathItem *pred,
 		res = executeItemOptUnwrapResultNoThrow(cxt, rarg, jb,
 												unwrapRightArg, &rseq);
 		if (jperIsError(res))
-			return jpbUnknown;
+		{
+			error = true;
+			goto exit;
+		}
 	}
 
 	JsonValueListInitIterator(&lseq, &lseqit);
-	while ((lval = JsonValueListNext(&lseq, &lseqit)))
+	while ((lval = JsonValueListNext(&lseqit)))
 	{
 		JsonValueListIterator rseqit;
 		JsonbValue *rval;
@@ -2309,7 +2356,7 @@ executePredicate(JsonPathExecContext *cxt, JsonPathItem *pred,
 
 		JsonValueListInitIterator(&rseq, &rseqit);
 		if (rarg)
-			rval = JsonValueListNext(&rseq, &rseqit);
+			rval = JsonValueListNext(&rseqit);
 		else
 			rval = NULL;
 
@@ -2320,24 +2367,29 @@ executePredicate(JsonPathExecContext *cxt, JsonPathItem *pred,
 
 			if (res == jpbUnknown)
 			{
-				if (jspStrictAbsenceOfErrors(cxt))
-					return jpbUnknown;
-
 				error = true;
+				if (jspStrictAbsenceOfErrors(cxt))
+				{
+					found = false;	/* return unknown, not success */
+					goto exit;
+				}
 			}
 			else if (res == jpbTrue)
 			{
-				if (!jspStrictAbsenceOfErrors(cxt))
-					return jpbTrue;
-
 				found = true;
+				if (!jspStrictAbsenceOfErrors(cxt))
+					goto exit;
 			}
 
 			first = false;
 			if (rarg)
-				rval = JsonValueListNext(&rseq, &rseqit);
+				rval = JsonValueListNext(&rseqit);
 		}
 	}
+
+exit:
+	JsonValueListClear(&lseq);
+	JsonValueListClear(&rseq);
 
 	if (found)					/* possible only in strict mode */
 		return jpbTrue;
@@ -2359,11 +2411,15 @@ executeBinaryArithmExpr(JsonPathExecContext *cxt, JsonPathItem *jsp,
 {
 	JsonPathExecResult jper;
 	JsonPathItem elem;
-	JsonValueList lseq = {0};
-	JsonValueList rseq = {0};
+	JsonValueList lseq;
+	JsonValueList rseq;
 	JsonbValue *lval;
 	JsonbValue *rval;
+	JsonbValue	resval;
 	Numeric		res;
+
+	JsonValueListInit(&lseq);
+	JsonValueListInit(&rseq);
 
 	jspGetLeftArg(jsp, &elem);
 
@@ -2373,27 +2429,43 @@ executeBinaryArithmExpr(JsonPathExecContext *cxt, JsonPathItem *jsp,
 	 */
 	jper = executeItemOptUnwrapResult(cxt, &elem, jb, true, &lseq);
 	if (jperIsError(jper))
+	{
+		JsonValueListClear(&lseq);
+		JsonValueListClear(&rseq);
 		return jper;
+	}
 
 	jspGetRightArg(jsp, &elem);
 
 	jper = executeItemOptUnwrapResult(cxt, &elem, jb, true, &rseq);
 	if (jperIsError(jper))
+	{
+		JsonValueListClear(&lseq);
+		JsonValueListClear(&rseq);
 		return jper;
+	}
 
-	if (JsonValueListLength(&lseq) != 1 ||
+	if (!JsonValueListIsSingleton(&lseq) ||
 		!(lval = getScalar(JsonValueListHead(&lseq), jbvNumeric)))
+	{
+		JsonValueListClear(&lseq);
+		JsonValueListClear(&rseq);
 		RETURN_ERROR(ereport(ERROR,
 							 (errcode(ERRCODE_SINGLETON_SQL_JSON_ITEM_REQUIRED),
 							  errmsg("left operand of jsonpath operator %s is not a single numeric value",
 									 jspOperationName(jsp->type)))));
+	}
 
-	if (JsonValueListLength(&rseq) != 1 ||
+	if (!JsonValueListIsSingleton(&rseq) ||
 		!(rval = getScalar(JsonValueListHead(&rseq), jbvNumeric)))
+	{
+		JsonValueListClear(&lseq);
+		JsonValueListClear(&rseq);
 		RETURN_ERROR(ereport(ERROR,
 							 (errcode(ERRCODE_SINGLETON_SQL_JSON_ITEM_REQUIRED),
 							  errmsg("right operand of jsonpath operator %s is not a single numeric value",
 									 jspOperationName(jsp->type)))));
+	}
 
 	if (jspThrowErrors(cxt))
 	{
@@ -2406,17 +2478,23 @@ executeBinaryArithmExpr(JsonPathExecContext *cxt, JsonPathItem *jsp,
 		res = func(lval->val.numeric, rval->val.numeric, (Node *) &escontext);
 
 		if (escontext.error_occurred)
+		{
+			JsonValueListClear(&lseq);
+			JsonValueListClear(&rseq);
 			return jperError;
+		}
 	}
+
+	JsonValueListClear(&lseq);
+	JsonValueListClear(&rseq);
 
 	if (!jspGetNext(jsp, &elem) && !found)
 		return jperOk;
 
-	lval = palloc_object(JsonbValue);
-	lval->type = jbvNumeric;
-	lval->val.numeric = res;
+	resval.type = jbvNumeric;
+	resval.val.numeric = res;
 
-	return executeNextItem(cxt, jsp, &elem, lval, found, false);
+	return executeNextItem(cxt, jsp, &elem, &resval, found);
 }
 
 /*
@@ -2430,34 +2508,40 @@ executeUnaryArithmExpr(JsonPathExecContext *cxt, JsonPathItem *jsp,
 	JsonPathExecResult jper;
 	JsonPathExecResult jper2;
 	JsonPathItem elem;
-	JsonValueList seq = {0};
+	JsonValueList seq;
 	JsonValueListIterator it;
 	JsonbValue *val;
 	bool		hasNext;
+
+	JsonValueListInit(&seq);
 
 	jspGetArg(jsp, &elem);
 	jper = executeItemOptUnwrapResult(cxt, &elem, jb, true, &seq);
 
 	if (jperIsError(jper))
-		return jper;
+		goto exit;
 
 	jper = jperNotFound;
 
 	hasNext = jspGetNext(jsp, &elem);
 
 	JsonValueListInitIterator(&seq, &it);
-	while ((val = JsonValueListNext(&seq, &it)))
+	while ((val = JsonValueListNext(&it)))
 	{
 		if ((val = getScalar(val, jbvNumeric)))
 		{
 			if (!found && !hasNext)
-				return jperOk;
+			{
+				jper = jperOk;
+				goto exit;
+			}
 		}
 		else
 		{
 			if (!found && !hasNext)
 				continue;		/* skip non-numerics processing */
 
+			JsonValueListClear(&seq);
 			RETURN_ERROR(ereport(ERROR,
 								 (errcode(ERRCODE_SQL_JSON_NUMBER_NOT_FOUND),
 								  errmsg("operand of unary jsonpath operator %s is not a numeric value",
@@ -2469,18 +2553,24 @@ executeUnaryArithmExpr(JsonPathExecContext *cxt, JsonPathItem *jsp,
 				DatumGetNumeric(DirectFunctionCall1(func,
 													NumericGetDatum(val->val.numeric)));
 
-		jper2 = executeNextItem(cxt, jsp, &elem, val, found, false);
+		jper2 = executeNextItem(cxt, jsp, &elem, val, found);
 
 		if (jperIsError(jper2))
-			return jper2;
+		{
+			jper = jper2;
+			goto exit;
+		}
 
 		if (jper2 == jperOk)
 		{
-			if (!found)
-				return jperOk;
 			jper = jperOk;
+			if (!found)
+				goto exit;
 		}
 	}
+
+exit:
+	JsonValueListClear(&seq);
 
 	return jper;
 }
@@ -2552,6 +2642,7 @@ executeNumericItemMethod(JsonPathExecContext *cxt, JsonPathItem *jsp,
 {
 	JsonPathItem next;
 	Datum		datum;
+	JsonbValue	jbv;
 
 	if (unwrap && JsonbType(jb) == jbvArray)
 		return executeItemUnwrapTargetArray(cxt, jsp, jb, found, false);
@@ -2567,11 +2658,10 @@ executeNumericItemMethod(JsonPathExecContext *cxt, JsonPathItem *jsp,
 	if (!jspGetNext(jsp, &next) && !found)
 		return jperOk;
 
-	jb = palloc_object(JsonbValue);
-	jb->type = jbvNumeric;
-	jb->val.numeric = DatumGetNumeric(datum);
+	jbv.type = jbvNumeric;
+	jbv.val.numeric = DatumGetNumeric(datum);
 
-	return executeNextItem(cxt, jsp, &next, jb, found, false);
+	return executeNextItem(cxt, jsp, &next, &jbv, found);
 }
 
 /*
@@ -2590,7 +2680,7 @@ static JsonPathExecResult
 executeDateTimeMethod(JsonPathExecContext *cxt, JsonPathItem *jsp,
 					  JsonbValue *jb, JsonValueList *found)
 {
-	JsonbValue	jbvbuf;
+	JsonbValue	jbv;
 	Datum		value;
 	text	   *datetime;
 	Oid			collid;
@@ -3033,15 +3123,13 @@ executeDateTimeMethod(JsonPathExecContext *cxt, JsonPathItem *jsp,
 	if (!hasNext && !found)
 		return res;
 
-	jb = hasNext ? &jbvbuf : palloc_object(JsonbValue);
+	jbv.type = jbvDatetime;
+	jbv.val.datetime.value = value;
+	jbv.val.datetime.typid = typid;
+	jbv.val.datetime.typmod = typmod;
+	jbv.val.datetime.tz = tz;
 
-	jb->type = jbvDatetime;
-	jb->val.datetime.value = value;
-	jb->val.datetime.typid = typid;
-	jb->val.datetime.typmod = typmod;
-	jb->val.datetime.tz = tz;
-
-	return executeNextItem(cxt, jsp, &elem, jb, found, hasNext);
+	return executeNextItem(cxt, jsp, &elem, &jbv, found);
 }
 
 /*
@@ -3159,7 +3247,7 @@ executeKeyValueMethod(JsonPathExecContext *cxt, JsonPathItem *jsp,
 
 		baseObject = setBaseObject(cxt, &obj, cxt->lastGeneratedObjectId++);
 
-		res = executeNextItem(cxt, jsp, &next, &obj, found, true);
+		res = executeNextItem(cxt, jsp, &next, &obj, found);
 
 		cxt->baseObject = baseObject;
 
@@ -3197,7 +3285,7 @@ appendBoolResult(JsonPathExecContext *cxt, JsonPathItem *jsp,
 		jbv.val.boolean = res == jpbTrue;
 	}
 
-	return executeNextItem(cxt, jsp, &next, &jbv, found, true);
+	return executeNextItem(cxt, jsp, &next, &jbv, found);
 }
 
 /*
@@ -3711,19 +3799,29 @@ getArrayIndex(JsonPathExecContext *cxt, JsonPathItem *jsp, JsonbValue *jb,
 			  int32 *index)
 {
 	JsonbValue *jbv;
-	JsonValueList found = {0};
-	JsonPathExecResult res = executeItem(cxt, jsp, jb, &found);
+	JsonValueList found;
+	JsonPathExecResult res;
 	Datum		numeric_index;
 	ErrorSaveContext escontext = {T_ErrorSaveContext};
 
-	if (jperIsError(res))
-		return res;
+	JsonValueListInit(&found);
 
-	if (JsonValueListLength(&found) != 1 ||
+	res = executeItem(cxt, jsp, jb, &found);
+
+	if (jperIsError(res))
+	{
+		JsonValueListClear(&found);
+		return res;
+	}
+
+	if (!JsonValueListIsSingleton(&found) ||
 		!(jbv = getScalar(JsonValueListHead(&found), jbvNumeric)))
+	{
+		JsonValueListClear(&found);
 		RETURN_ERROR(ereport(ERROR,
 							 (errcode(ERRCODE_INVALID_SQL_JSON_SUBSCRIPT),
 							  errmsg("jsonpath array subscript is not a single numeric value"))));
+	}
 
 	numeric_index = DirectFunctionCall2(numeric_trunc,
 										NumericGetDatum(jbv->val.numeric),
@@ -3731,6 +3829,8 @@ getArrayIndex(JsonPathExecContext *cxt, JsonPathItem *jsp, JsonbValue *jb,
 
 	*index = numeric_int4_safe(DatumGetNumeric(numeric_index),
 							   (Node *) &escontext);
+
+	JsonValueListClear(&found);
 
 	if (escontext.error_occurred)
 		RETURN_ERROR(ereport(ERROR,
@@ -3753,96 +3853,132 @@ setBaseObject(JsonPathExecContext *cxt, JsonbValue *jbv, int32 id)
 	return baseObject;
 }
 
+/*
+ * JsonValueList support functions
+ */
+
+static void
+JsonValueListInit(JsonValueList *jvl)
+{
+	jvl->nitems = 0;
+	jvl->maxitems = BASE_JVL_ITEMS;
+	jvl->next = NULL;
+	jvl->last = jvl;
+}
+
 static void
 JsonValueListClear(JsonValueList *jvl)
 {
-	jvl->singleton = NULL;
-	jvl->list = NIL;
+	JsonValueList *nxt;
+
+	/* Release any extra chunks */
+	for (JsonValueList *chunk = jvl->next; chunk != NULL; chunk = nxt)
+	{
+		nxt = chunk->next;
+		pfree(chunk);
+	}
+	/* ... and reset to empty */
+	jvl->nitems = 0;
+	Assert(jvl->maxitems == BASE_JVL_ITEMS);
+	jvl->next = NULL;
+	jvl->last = jvl;
 }
 
 static void
-JsonValueListAppend(JsonValueList *jvl, JsonbValue *jbv)
+JsonValueListAppend(JsonValueList *jvl, const JsonbValue *jbv)
 {
-	if (jvl->singleton)
-	{
-		jvl->list = list_make2(jvl->singleton, jbv);
-		jvl->singleton = NULL;
-	}
-	else if (!jvl->list)
-		jvl->singleton = jbv;
-	else
-		jvl->list = lappend(jvl->list, jbv);
-}
+	JsonValueList *last = jvl->last;
 
-static int
-JsonValueListLength(const JsonValueList *jvl)
-{
-	return jvl->singleton ? 1 : list_length(jvl->list);
+	if (last->nitems < last->maxitems)
+	{
+		/* there's still room in the last existing chunk */
+		last->items[last->nitems] = *jbv;
+		last->nitems++;
+	}
+	else
+	{
+		/* need a new last chunk */
+		JsonValueList *nxt;
+		int			nxtsize;
+
+		nxtsize = last->maxitems * 2;	/* double the size with each chunk */
+		nxtsize = Max(nxtsize, MIN_EXTRA_JVL_ITEMS);	/* but at least this */
+		nxt = palloc(offsetof(JsonValueList, items) +
+					 nxtsize * sizeof(JsonbValue));
+		nxt->nitems = 1;
+		nxt->maxitems = nxtsize;
+		nxt->next = NULL;
+		nxt->items[0] = *jbv;
+		last->next = nxt;
+		jvl->last = nxt;
+	}
 }
 
 static bool
-JsonValueListIsEmpty(JsonValueList *jvl)
+JsonValueListIsEmpty(const JsonValueList *jvl)
 {
-	return !jvl->singleton && (jvl->list == NIL);
+	/* We need not examine extra chunks for this */
+	return (jvl->nitems == 0);
+}
+
+static bool
+JsonValueListIsSingleton(const JsonValueList *jvl)
+{
+#if BASE_JVL_ITEMS > 1
+	/* We need not examine extra chunks in this case */
+	return (jvl->nitems == 1);
+#else
+	return (jvl->nitems == 1 && jvl->next == NULL);
+#endif
+}
+
+static bool
+JsonValueListHasMultipleItems(const JsonValueList *jvl)
+{
+#if BASE_JVL_ITEMS > 1
+	/* We need not examine extra chunks in this case */
+	return (jvl->nitems > 1);
+#else
+	return (jvl->nitems == 1 && jvl->next != NULL);
+#endif
 }
 
 static JsonbValue *
 JsonValueListHead(JsonValueList *jvl)
 {
-	return jvl->singleton ? jvl->singleton : linitial(jvl->list);
+	Assert(jvl->nitems > 0);
+	return &jvl->items[0];
 }
 
-static List *
-JsonValueListGetList(JsonValueList *jvl)
-{
-	if (jvl->singleton)
-		return list_make1(jvl->singleton);
-
-	return jvl->list;
-}
+/*
+ * JsonValueListIterator functions
+ */
 
 static void
-JsonValueListInitIterator(const JsonValueList *jvl, JsonValueListIterator *it)
+JsonValueListInitIterator(JsonValueList *jvl, JsonValueListIterator *it)
 {
-	if (jvl->singleton)
-	{
-		it->value = jvl->singleton;
-		it->list = NIL;
-		it->next = NULL;
-	}
-	else if (jvl->list != NIL)
-	{
-		it->value = (JsonbValue *) linitial(jvl->list);
-		it->list = jvl->list;
-		it->next = list_second_cell(jvl->list);
-	}
-	else
-	{
-		it->value = NULL;
-		it->list = NIL;
-		it->next = NULL;
-	}
+	it->chunk = jvl;
+	it->nextitem = 0;
 }
 
 /*
  * Get the next item from the sequence advancing iterator.
+ * Returns NULL if no more items.
  */
 static JsonbValue *
-JsonValueListNext(const JsonValueList *jvl, JsonValueListIterator *it)
+JsonValueListNext(JsonValueListIterator *it)
 {
-	JsonbValue *result = it->value;
-
-	if (it->next)
+	if (it->chunk == NULL)
+		return NULL;
+	if (it->nextitem >= it->chunk->nitems)
 	{
-		it->value = lfirst(it->next);
-		it->next = lnext(it->list, it->next);
+		it->chunk = it->chunk->next;
+		if (it->chunk == NULL)
+			return NULL;
+		it->nextitem = 0;
+		Assert(it->chunk->nitems > 0);
 	}
-	else
-	{
-		it->value = NULL;
-	}
-
-	return result;
+	return &it->chunk->items[it->nextitem++];
 }
 
 /*
@@ -3897,7 +4033,7 @@ getScalar(JsonbValue *scalar, enum jbvType type)
 
 /* Construct a JSON array from the item list */
 static JsonbValue *
-wrapItemsInArray(const JsonValueList *items)
+wrapItemsInArray(JsonValueList *items)
 {
 	JsonbInState ps = {0};
 	JsonValueListIterator it;
@@ -3906,7 +4042,7 @@ wrapItemsInArray(const JsonValueList *items)
 	pushJsonbValue(&ps, WJB_BEGIN_ARRAY, NULL);
 
 	JsonValueListInitIterator(items, &it);
-	while ((jbv = JsonValueListNext(items, &it)))
+	while ((jbv = JsonValueListNext(&it)))
 		pushJsonbValue(&ps, WJB_ELEM, jbv);
 
 	pushJsonbValue(&ps, WJB_END_ARRAY, NULL);
@@ -4165,11 +4301,11 @@ JsonPathQuery(Datum jb, JsonPath *jp, JsonWrapper wrapper, bool *empty,
 			  bool *error, List *vars,
 			  const char *column_name)
 {
-	JsonbValue *singleton;
 	bool		wrap;
-	JsonValueList found = {0};
+	JsonValueList found;
 	JsonPathExecResult res;
-	int			count;
+
+	JsonValueListInit(&found);
 
 	res = executeJsonPath(jp, vars,
 						  GetJsonPathVar, CountJsonPathVars,
@@ -4185,9 +4321,7 @@ JsonPathQuery(Datum jb, JsonPath *jp, JsonWrapper wrapper, bool *empty,
 	/*
 	 * Determine whether to wrap the result in a JSON array or not.
 	 *
-	 * First, count the number of SQL/JSON items in the returned
-	 * JsonValueList. If the list is empty (singleton == NULL), no wrapping is
-	 * necessary.
+	 * If the returned JsonValueList is empty, no wrapping is necessary.
 	 *
 	 * If the wrapper mode is JSW_NONE or JSW_UNSPEC, wrapping is explicitly
 	 * disabled. This enforces a WITHOUT WRAPPER clause, which is also the
@@ -4200,16 +4334,14 @@ JsonPathQuery(Datum jb, JsonPath *jp, JsonWrapper wrapper, bool *empty,
 	 * For JSW_CONDITIONAL, wrapping occurs only if there is more than one
 	 * SQL/JSON item in the list, enforcing a WITH CONDITIONAL WRAPPER clause.
 	 */
-	count = JsonValueListLength(&found);
-	singleton = count > 0 ? JsonValueListHead(&found) : NULL;
-	if (singleton == NULL)
+	if (JsonValueListIsEmpty(&found))
 		wrap = false;
 	else if (wrapper == JSW_NONE || wrapper == JSW_UNSPEC)
 		wrap = false;
 	else if (wrapper == JSW_UNCONDITIONAL)
 		wrap = true;
 	else if (wrapper == JSW_CONDITIONAL)
-		wrap = count > 1;
+		wrap = JsonValueListHasMultipleItems(&found);
 	else
 	{
 		elog(ERROR, "unrecognized json wrapper %d", (int) wrapper);
@@ -4219,8 +4351,8 @@ JsonPathQuery(Datum jb, JsonPath *jp, JsonWrapper wrapper, bool *empty,
 	if (wrap)
 		return JsonbPGetDatum(JsonbValueToJsonb(wrapItemsInArray(&found)));
 
-	/* No wrapping means only one item is expected. */
-	if (count > 1)
+	/* No wrapping means at most one item is expected. */
+	if (JsonValueListHasMultipleItems(&found))
 	{
 		if (error)
 		{
@@ -4241,8 +4373,8 @@ JsonPathQuery(Datum jb, JsonPath *jp, JsonWrapper wrapper, bool *empty,
 					 errhint("Use the WITH WRAPPER clause to wrap SQL/JSON items into an array.")));
 	}
 
-	if (singleton)
-		return JsonbPGetDatum(JsonbValueToJsonb(singleton));
+	if (!JsonValueListIsEmpty(&found))
+		return JsonbPGetDatum(JsonbValueToJsonb(JsonValueListHead(&found)));
 
 	*empty = true;
 	return PointerGetDatum(NULL);
@@ -4259,9 +4391,10 @@ JsonPathValue(Datum jb, JsonPath *jp, bool *empty, bool *error, List *vars,
 			  const char *column_name)
 {
 	JsonbValue *res;
-	JsonValueList found = {0};
+	JsonValueList found;
 	JsonPathExecResult jper PG_USED_FOR_ASSERTS_ONLY;
-	int			count;
+
+	JsonValueListInit(&found);
 
 	jper = executeJsonPath(jp, vars, GetJsonPathVar, CountJsonPathVars,
 						   DatumGetJsonbP(jb),
@@ -4276,15 +4409,13 @@ JsonPathValue(Datum jb, JsonPath *jp, bool *empty, bool *error, List *vars,
 		return NULL;
 	}
 
-	count = JsonValueListLength(&found);
-
-	*empty = (count == 0);
+	*empty = JsonValueListIsEmpty(&found);
 
 	if (*empty)
 		return NULL;
 
 	/* JSON_VALUE expects to get only singletons. */
-	if (count > 1)
+	if (JsonValueListHasMultipleItems(&found))
 	{
 		if (error)
 		{
@@ -4303,7 +4434,7 @@ JsonPathValue(Datum jb, JsonPath *jp, bool *empty, bool *error, List *vars,
 					 errmsg("JSON path expression in JSON_VALUE must return single scalar item")));
 	}
 
-	res = JsonValueListHead(&found);
+	res = copyJsonbValue(JsonValueListHead(&found));
 	if (res->type == jbvBinary && JsonContainerIsScalar(res->val.binary.data))
 		JsonbExtractScalar(res->val.binary.data, res);
 
@@ -4450,6 +4581,7 @@ JsonTableInitPlan(JsonTableExecContext *cxt, JsonTablePlan *plan,
 
 	planstate->plan = plan;
 	planstate->parent = parentstate;
+	JsonValueListInit(&planstate->found);
 
 	if (IsA(plan, JsonTablePathScan))
 	{
@@ -4585,7 +4717,7 @@ JsonTablePlanScanNextRow(JsonTablePlanState *planstate)
 	}
 
 	/* Fetch new row from the list of found values to set as active. */
-	jbv = JsonValueListNext(&planstate->found, &planstate->iter);
+	jbv = JsonValueListNext(&planstate->iter);
 
 	/* End of list? */
 	if (jbv == NULL)

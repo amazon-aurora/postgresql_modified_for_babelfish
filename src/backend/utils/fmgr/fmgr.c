@@ -37,6 +37,7 @@
 #include "utils/fmgrtab.h"
 #include "utils/guc.h"
 #include "utils/guc_hooks.h"
+#include "utils/hsearch.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 

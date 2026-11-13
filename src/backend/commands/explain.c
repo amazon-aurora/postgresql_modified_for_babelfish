@@ -42,6 +42,7 @@
 #include "utils/ruleutils.h"
 #include "utils/snapmgr.h"
 #include "utils/tuplesort.h"
+#include "utils/tuplestore.h"
 #include "utils/typcache.h"
 #include "utils/xml.h"
 
@@ -281,6 +282,7 @@ ExplainResultDesc(ExplainStmt *stmt)
 	tupdesc = CreateTemplateTupleDesc(1);
 	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "QUERY PLAN",
 					   result_type, -1, 0);
+	TupleDescFinalize(tupdesc);
 	return tupdesc;
 }
 
@@ -3878,7 +3880,7 @@ show_indexsearches_info(PlanState *planstate, ExplainState *es)
 			{
 				IndexScanState *indexstate = ((IndexScanState *) planstate);
 
-				nsearches = indexstate->iss_Instrument.nsearches;
+				nsearches = indexstate->iss_Instrument->nsearches;
 				SharedInfo = indexstate->iss_SharedInfo;
 				break;
 			}
@@ -3886,7 +3888,7 @@ show_indexsearches_info(PlanState *planstate, ExplainState *es)
 			{
 				IndexOnlyScanState *indexstate = ((IndexOnlyScanState *) planstate);
 
-				nsearches = indexstate->ioss_Instrument.nsearches;
+				nsearches = indexstate->ioss_Instrument->nsearches;
 				SharedInfo = indexstate->ioss_SharedInfo;
 				break;
 			}
@@ -3894,7 +3896,7 @@ show_indexsearches_info(PlanState *planstate, ExplainState *es)
 			{
 				BitmapIndexScanState *indexstate = ((BitmapIndexScanState *) planstate);
 
-				nsearches = indexstate->biss_Instrument.nsearches;
+				nsearches = indexstate->biss_Instrument->nsearches;
 				SharedInfo = indexstate->biss_SharedInfo;
 				break;
 			}

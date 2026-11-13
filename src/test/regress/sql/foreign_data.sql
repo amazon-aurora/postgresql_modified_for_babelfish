@@ -13,6 +13,11 @@ CREATE FUNCTION test_fdw_handler()
     AS :'regresslib', 'test_fdw_handler'
     LANGUAGE C;
 
+CREATE FUNCTION test_fdw_connection(oid, oid, internal)
+    RETURNS text
+    AS :'regresslib', 'test_fdw_connection'
+    LANGUAGE C;
+
 -- Clean up in case a prior regression run failed
 
 -- Suppress NOTICE messages when roles don't exist
@@ -67,6 +72,13 @@ CREATE FUNCTION invalid_fdw_handler() RETURNS int LANGUAGE SQL AS 'SELECT 1;';
 CREATE FOREIGN DATA WRAPPER test_fdw HANDLER invalid_fdw_handler;  -- ERROR
 CREATE FOREIGN DATA WRAPPER test_fdw HANDLER test_fdw_handler HANDLER invalid_fdw_handler;  -- ERROR
 CREATE FOREIGN DATA WRAPPER test_fdw HANDLER test_fdw_handler;
+
+-- should preserve dependencies on test_fdw_handler and test_fdw_connection
+ALTER FOREIGN DATA WRAPPER test_fdw CONNECTION test_fdw_connection;
+ALTER FOREIGN DATA WRAPPER test_fdw VALIDATOR postgresql_fdw_validator;
+DROP FUNCTION test_fdw_handler(); -- ERROR
+DROP FUNCTION test_fdw_connection(oid, oid, internal); -- ERROR
+
 DROP FOREIGN DATA WRAPPER test_fdw;
 
 -- ALTER FOREIGN DATA WRAPPER

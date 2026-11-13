@@ -30,6 +30,23 @@
 
 
 /*
+ * Reject building with gcc's -ffast-math switch.  It breaks our handling of
+ * float Infinity and NaN values (via -ffinite-math-only), causes results to
+ * be less accurate than expected (via -funsafe-math-optimizations and
+ * -fexcess-precision=fast), and causes some math error reports to be missed
+ * (via -fno-math-errno).  Unfortunately we can't easily detect cases where
+ * those options were given individually, but this at least catches the most
+ * obvious case.
+ *
+ * We test this only here, not in any header file, to allow extensions to use
+ * -ffast-math if they need to.  But the inline functions in float.h will
+ * misbehave in such an extension, so its authors had better be careful.
+ */
+#ifdef __FAST_MATH__
+#error -ffast-math is known to break this code
+#endif
+
+/*
  * Configurable GUC parameter
  *
  * If >0, use shortest-decimal format for output; this is both the default and
@@ -1223,7 +1240,7 @@ dtoi4(PG_FUNCTION_ARGS)
 
 	/* Range check */
 	if (unlikely(isnan(num) || !FLOAT8_FITS_IN_INT32(num)))
-		ereport(ERROR,
+		ereturn(fcinfo->context, (Datum) 0,
 				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
 				 errmsg("integer out of range")));
 
@@ -1248,7 +1265,7 @@ dtoi2(PG_FUNCTION_ARGS)
 
 	/* Range check */
 	if (unlikely(isnan(num) || !FLOAT8_FITS_IN_INT16(num)))
-		ereport(ERROR,
+		ereturn(fcinfo->context, (Datum) 0,
 				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
 				 errmsg("smallint out of range")));
 
@@ -1297,7 +1314,7 @@ ftoi4(PG_FUNCTION_ARGS)
 
 	/* Range check */
 	if (unlikely(isnan(num) || !FLOAT4_FITS_IN_INT32(num)))
-		ereport(ERROR,
+		ereturn(fcinfo->context, (Datum) 0,
 				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
 				 errmsg("integer out of range")));
 
@@ -1322,7 +1339,7 @@ ftoi2(PG_FUNCTION_ARGS)
 
 	/* Range check */
 	if (unlikely(isnan(num) || !FLOAT4_FITS_IN_INT16(num)))
-		ereport(ERROR,
+		ereturn(fcinfo->context, (Datum) 0,
 				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
 				 errmsg("smallint out of range")));
 

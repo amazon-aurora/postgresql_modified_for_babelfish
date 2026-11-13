@@ -1921,7 +1921,8 @@ pg_stat_database_conflicts| SELECT oid AS datid,
     pg_stat_get_db_conflict_snapshot(oid) AS confl_snapshot,
     pg_stat_get_db_conflict_bufferpin(oid) AS confl_bufferpin,
     pg_stat_get_db_conflict_startup_deadlock(oid) AS confl_deadlock,
-    pg_stat_get_db_conflict_logicalslot(oid) AS confl_active_logicalslot
+    pg_stat_get_db_conflict_logicalslot(oid) AS confl_active_logicalslot,
+    pg_stat_get_db_stat_reset_time(oid) AS stats_reset
    FROM pg_database d;
 pg_stat_gssapi| SELECT pid,
     gss_auth AS gss_authenticated,
@@ -1951,6 +1952,12 @@ pg_stat_io| SELECT backend_type,
     fsync_time,
     stats_reset
    FROM pg_stat_get_io() b(backend_type, object, context, reads, read_bytes, read_time, writes, write_bytes, write_time, writebacks, writeback_time, extends, extend_bytes, extend_time, hits, evictions, reuses, fsyncs, fsync_time, stats_reset);
+pg_stat_lock| SELECT locktype,
+    waits,
+    wait_time,
+    fastpath_exceeded,
+    stats_reset
+   FROM pg_stat_get_lock() l(locktype, waits, wait_time, fastpath_exceeded, stats_reset);
 pg_stat_progress_analyze| SELECT s.pid,
     s.datid,
     d.datname,
@@ -2450,7 +2457,8 @@ pg_statio_all_sequences| SELECT c.oid AS relid,
     n.nspname AS schemaname,
     c.relname,
     (pg_stat_get_blocks_fetched(c.oid) - pg_stat_get_blocks_hit(c.oid)) AS blks_read,
-    pg_stat_get_blocks_hit(c.oid) AS blks_hit
+    pg_stat_get_blocks_hit(c.oid) AS blks_hit,
+    pg_stat_get_stat_reset_time(c.oid) AS stats_reset
    FROM (pg_class c
      LEFT JOIN pg_namespace n ON ((n.oid = c.relnamespace)))
   WHERE (c.relkind = 'S'::"char");
@@ -2492,7 +2500,8 @@ pg_statio_sys_sequences| SELECT relid,
     schemaname,
     relname,
     blks_read,
-    blks_hit
+    blks_hit,
+    stats_reset
    FROM pg_statio_all_sequences
   WHERE ((schemaname = ANY (ARRAY['pg_catalog'::name, 'information_schema'::name])) OR (schemaname ~ '^pg_toast'::text));
 pg_statio_sys_tables| SELECT relid,
@@ -2523,7 +2532,8 @@ pg_statio_user_sequences| SELECT relid,
     schemaname,
     relname,
     blks_read,
-    blks_hit
+    blks_hit,
+    stats_reset
    FROM pg_statio_all_sequences
   WHERE ((schemaname <> ALL (ARRAY['pg_catalog'::name, 'information_schema'::name])) AND (schemaname !~ '^pg_toast'::text));
 pg_statio_user_tables| SELECT relid,
@@ -2542,7 +2552,9 @@ pg_statio_user_tables| SELECT relid,
   WHERE ((schemaname <> ALL (ARRAY['pg_catalog'::name, 'information_schema'::name])) AND (schemaname !~ '^pg_toast'::text));
 pg_stats| SELECT n.nspname AS schemaname,
     c.relname AS tablename,
+    a.attrelid AS tableid,
     a.attname,
+    a.attnum,
     s.stainherit AS inherited,
     s.stanullfrac AS null_frac,
     s.stawidth AS avg_width,
@@ -2634,8 +2646,10 @@ pg_stats| SELECT n.nspname AS schemaname,
   WHERE ((NOT a.attisdropped) AND has_column_privilege(c.oid, a.attnum, 'select'::text) AND ((c.relrowsecurity = false) OR (NOT row_security_active(c.oid))));
 pg_stats_ext| SELECT cn.nspname AS schemaname,
     c.relname AS tablename,
+    s.stxrelid AS tableid,
     sn.nspname AS statistics_schemaname,
     s.stxname AS statistics_name,
+    s.oid AS statistics_id,
     pg_get_userbyid(s.stxowner) AS statistics_owner,
     ( SELECT array_agg(a.attname ORDER BY a.attnum) AS array_agg
            FROM (unnest(s.stxkeys) k(k)
@@ -2662,8 +2676,10 @@ pg_stats_ext| SELECT cn.nspname AS schemaname,
   WHERE (pg_has_role(c.relowner, 'USAGE'::text) AND ((c.relrowsecurity = false) OR (NOT row_security_active(c.oid))));
 pg_stats_ext_exprs| SELECT cn.nspname AS schemaname,
     c.relname AS tablename,
+    s.stxrelid AS tableid,
     sn.nspname AS statistics_schemaname,
     s.stxname AS statistics_name,
+    s.oid AS statistics_id,
     pg_get_userbyid(s.stxowner) AS statistics_owner,
     stat.expr,
     sd.stxdinherit AS inherited,

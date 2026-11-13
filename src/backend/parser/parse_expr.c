@@ -30,6 +30,7 @@
 #include "parser/parse_collate.h"
 #include "parser/parse_expr.h"
 #include "parser/parse_func.h"
+#include "parser/parse_graphtable.h"
 #include "parser/parse_oper.h"
 #include "parser/parse_relation.h"
 #include "parser/parse_target.h"
@@ -589,6 +590,7 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 		case EXPR_KIND_COPY_WHERE:
 		case EXPR_KIND_GENERATED_COLUMN:
 		case EXPR_KIND_CYCLE_MARK:
+		case EXPR_KIND_PROPGRAPH_PROPERTY:
 			/* okay */
 			break;
 
@@ -875,6 +877,10 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 			crerr = CRERR_TOO_MANY; /* too many dotted names */
 			break;
 	}
+
+	/* Try it as a graph table property reference. */
+	if (node == NULL)
+		node = transformGraphTablePropertyRef(pstate, cref);
 
 	/*
 	 * Now give the PostParseColumnRefHook, if any, a chance.  We pass the
@@ -2011,6 +2017,9 @@ transformSubLink(ParseState *pstate, SubLink *sublink)
 			break;
 		case EXPR_KIND_GENERATED_COLUMN:
 			err = _("cannot use subquery in column generation expression");
+			break;
+		case EXPR_KIND_PROPGRAPH_PROPERTY:
+			err = _("cannot use subquery in property definition expression");
 			break;
 
 			/*
@@ -3405,6 +3414,8 @@ ParseExprKindName(ParseExprKind exprKind)
 			return "GENERATED AS";
 		case EXPR_KIND_CYCLE_MARK:
 			return "CYCLE";
+		case EXPR_KIND_PROPGRAPH_PROPERTY:
+			return "property definition expression";
 
 			/*
 			 * There is intentionally no default: case here, so that the
@@ -4256,7 +4267,7 @@ transformJsonParseArg(ParseState *pstate, Node *jsexpr, JsonFormat *format,
 	Node	   *raw_expr = transformExprRecurse(pstate, jsexpr);
 	Node	   *expr = raw_expr;
 
-	*exprtype = exprType(expr);
+	*exprtype = getBaseType(exprType(expr));
 
 	/* prepare input document */
 	if (*exprtype == BYTEAOID)
@@ -4309,13 +4320,14 @@ transformJsonIsPredicate(ParseState *pstate, JsonIsPredicate *pred)
 	/* make resulting expression */
 	if (exprtype != TEXTOID && exprtype != JSONOID && exprtype != JSONBOID)
 		ereport(ERROR,
-				(errcode(ERRCODE_DATATYPE_MISMATCH),
-				 errmsg("cannot use type %s in IS JSON predicate",
-						format_type_be(exprtype))));
+				errcode(ERRCODE_DATATYPE_MISMATCH),
+				errmsg("cannot use type %s in IS JSON predicate",
+					   format_type_be(exprType(expr))),
+				parser_errposition(pstate, exprLocation(expr)));
 
 	/* This intentionally(?) drops the format clause. */
 	return makeJsonIsPredicate(expr, NULL, pred->item_type,
-							   pred->unique_keys, pred->location);
+							   pred->unique_keys, exprtype, pred->location);
 }
 
 /*
@@ -4818,7 +4830,7 @@ transformJsonFuncExpr(ParseState *pstate, JsonFuncExpr *func)
 			if (jsexpr->returning->typid != TEXTOID)
 			{
 				if (get_typtype(jsexpr->returning->typid) == TYPTYPE_DOMAIN &&
-					DomainHasConstraints(jsexpr->returning->typid))
+					DomainHasConstraints(jsexpr->returning->typid, NULL))
 					jsexpr->use_json_coercion = true;
 				else
 					jsexpr->use_io_coercion = true;

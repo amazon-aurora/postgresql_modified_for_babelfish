@@ -39,12 +39,14 @@ SUBDIRS = \
 		  test_oat_hooks \
 		  test_parser \
 		  test_pg_dump \
+		  test_plan_advice \
 		  test_predtest \
 		  test_radixtree \
 		  test_rbtree \
 		  test_regex \
 		  test_resowner \
 		  test_rls_hooks \
+		  test_saslprep \
 		  test_shm_mq \
 		  test_slru \
 		  test_tidstore \

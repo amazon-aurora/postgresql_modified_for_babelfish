@@ -73,6 +73,10 @@
    */
 #undef HAVE_CXX_TYPEOF
 
+/* Define to 1 if your C++ compiler understands `typeof_unqual' or something
+   similar. */
+#undef HAVE_CXX_TYPEOF_UNQUAL
+
 /* Define to 1 if you have the declaration of `fdatasync', and to 0 if you
    don't. */
 #undef HAVE_DECL_FDATASYNC
@@ -368,6 +372,9 @@
 /* Define to 1 if you have the `SSL_CTX_set_ciphersuites' function. */
 #undef HAVE_SSL_CTX_SET_CIPHERSUITES
 
+/* Define to 1 if you have the `SSL_CTX_set_client_hello_cb' function. */
+#undef HAVE_SSL_CTX_SET_CLIENT_HELLO_CB
+
 /* Define to 1 if you have the `SSL_CTX_set_keylog_callback' function. */
 #undef HAVE_SSL_CTX_SET_KEYLOG_CALLBACK
 
@@ -457,6 +464,10 @@
 
 /* Define to 1 if your compiler understands `typeof' or something similar. */
 #undef HAVE_TYPEOF
+
+/* Define to 1 if your compiler understands `typeof_unqual' or something
+   similar. */
+#undef HAVE_TYPEOF_UNQUAL
 
 /* Define to 1 if you have the <uchar.h> header file. */
 #undef HAVE_UCHAR_H
@@ -784,6 +795,9 @@
 /* Define to how the C++ compiler spells `typeof'. */
 #undef pg_cxx_typeof
 
+/* Define to how the C++ compiler spells `typeof_unqual'. */
+#undef pg_cxx_typeof_unqual
+
 /* Define to keyword to use for C99 restrict support, or to nothing if not
    supported */
 #undef pg_restrict
@@ -804,3 +818,6 @@
 
 /* Define to how the compiler spells `typeof'. */
 #undef typeof
+
+/* Define to how the compiler spells `typeof_unqual'. */
+#undef typeof_unqual

@@ -41,6 +41,7 @@
 #include "lib/qunique.h"
 #include "miscadmin.h"
 #include "parser/parser.h"
+#include "port/pg_bitutils.h"
 #include "storage/large_object.h"
 #include "utils/acl.h"
 #include "utils/array.h"
@@ -659,6 +660,10 @@ aclitemin(PG_FUNCTION_ARGS)
  *		Allocates storage for, and fills in, a new null-delimited string
  *		containing a formatted ACL specification.  See aclparse for details.
  *
+ *		In bootstrap mode, this is called for debug printouts (initdb -d).
+ *		We could ask bootstrap.c to provide an inverse of boot_get_role_oid(),
+ *		but it seems at least as useful to just print numeric role OIDs.
+ *
  * RETURNS:
  *		the new string
  */
@@ -681,7 +686,10 @@ aclitemout(PG_FUNCTION_ARGS)
 
 	if (aip->ai_grantee != ACL_ID_PUBLIC)
 	{
-		htup = SearchSysCache1(AUTHOID, ObjectIdGetDatum(aip->ai_grantee));
+		if (!IsBootstrapProcessingMode())
+			htup = SearchSysCache1(AUTHOID, ObjectIdGetDatum(aip->ai_grantee));
+		else
+			htup = NULL;
 		if (HeapTupleIsValid(htup))
 		{
 			putid(p, NameStr(((Form_pg_authid) GETSTRUCT(htup))->rolname));
@@ -689,7 +697,7 @@ aclitemout(PG_FUNCTION_ARGS)
 		}
 		else
 		{
-			/* Generate numeric OID if we don't find an entry */
+			/* No such entry, or bootstrap mode: print numeric OID */
 			sprintf(p, "%u", aip->ai_grantee);
 		}
 	}
@@ -709,7 +717,10 @@ aclitemout(PG_FUNCTION_ARGS)
 	*p++ = '/';
 	*p = '\0';
 
-	htup = SearchSysCache1(AUTHOID, ObjectIdGetDatum(aip->ai_grantor));
+	if (!IsBootstrapProcessingMode())
+		htup = SearchSysCache1(AUTHOID, ObjectIdGetDatum(aip->ai_grantor));
+	else
+		htup = NULL;
 	if (HeapTupleIsValid(htup))
 	{
 		putid(p, NameStr(((Form_pg_authid) GETSTRUCT(htup))->rolname));
@@ -717,7 +728,7 @@ aclitemout(PG_FUNCTION_ARGS)
 	}
 	else
 	{
-		/* Generate numeric OID if we don't find an entry */
+		/* No such entry, or bootstrap mode: print numeric OID */
 		sprintf(p, "%u", aip->ai_grantor);
 	}
 
@@ -886,6 +897,10 @@ acldefault(ObjectType objtype, Oid ownerId)
 		case OBJECT_PARAMETER_ACL:
 			world_default = ACL_NO_RIGHTS;
 			owner_default = ACL_ALL_RIGHTS_PARAMETER_ACL;
+			break;
+		case OBJECT_PROPGRAPH:
+			world_default = ACL_NO_RIGHTS;
+			owner_default = ACL_ALL_RIGHTS_PROPGRAPH;
 			break;
 		default:
 			elog(ERROR, "unrecognized object type: %d", (int) objtype);
@@ -1838,6 +1853,7 @@ aclexplode(PG_FUNCTION_ARGS)
 		TupleDescInitEntry(tupdesc, (AttrNumber) 4, "is_grantable",
 						   BOOLOID, -1, 0);
 
+		TupleDescFinalize(tupdesc);
 		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
 
 		/* allocate memory for user context */
@@ -5485,6 +5501,10 @@ select_best_admin(Oid member, Oid role)
 /*
  * Select the effective grantor ID for a GRANT or REVOKE operation.
  *
+ * If the GRANT/REVOKE has an explicit GRANTED BY clause, we always use
+ * exactly that role (which may result in granting/revoking no privileges).
+ * Otherwise, we seek a "best" grantor, starting with the current user.
+ *
  * The grantor must always be either the object owner or some role that has
  * been explicitly granted grant options.  This ensures that all granted
  * privileges appear to flow from the object owner, and there are never
@@ -5497,24 +5517,43 @@ select_best_admin(Oid member, Oid role)
  * role has 'em all.  In this case we pick a role with the largest number
  * of desired options.  Ties are broken in favor of closer ancestors.
  *
- * roleId: the role attempting to do the GRANT/REVOKE
+ * grantedBy: the GRANTED BY clause of GRANT/REVOKE, or NULL if none
  * privileges: the privileges to be granted/revoked
  * acl: the ACL of the object in question
  * ownerId: the role owning the object in question
  * *grantorId: receives the OID of the role to do the grant as
- * *grantOptions: receives the grant options actually held by grantorId
- *
- * If no grant options exist, we set grantorId to roleId, grantOptions to 0.
+ * *grantOptions: receives grant options actually held by grantorId (maybe 0)
  */
 void
-select_best_grantor(Oid roleId, AclMode privileges,
+select_best_grantor(const RoleSpec *grantedBy, AclMode privileges,
 					const Acl *acl, Oid ownerId,
 					Oid *grantorId, AclMode *grantOptions)
 {
+	Oid			roleId = GetUserId();
 	AclMode		needed_goptions = ACL_GRANT_OPTION_FOR(privileges);
 	List	   *roles_list;
 	int			nrights;
 	ListCell   *l;
+
+	/*
+	 * If we have GRANTED BY, resolve it and verify current user is allowed to
+	 * specify that role.
+	 */
+	if (grantedBy)
+	{
+		Oid			grantor = get_rolespec_oid(grantedBy, false);
+
+		if (!has_privs_of_role(roleId, grantor))
+			ereport(ERROR,
+					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+					 errmsg("must inherit privileges of role \"%s\"",
+							GetUserNameFromId(grantor, false))));
+		/* Use exactly that grantor, whether it has privileges or not */
+		*grantorId = grantor;
+		*grantOptions = aclmask_direct(acl, grantor, ownerId,
+									   needed_goptions, ACLMASK_ALL);
+		return;
+	}
 
 	/*
 	 * The object owner is always treated as having all grant options, so if

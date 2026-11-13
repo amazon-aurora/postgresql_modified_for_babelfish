@@ -707,6 +707,14 @@ CreateForeignDataWrapper(ParseState *pstate, CreateFdwStmt *stmt)
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 
+	if (OidIsValid(fdwconnection))
+	{
+		referenced.classId = ProcedureRelationId;
+		referenced.objectId = fdwconnection;
+		referenced.objectSubId = 0;
+		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+	}
+
 	recordDependencyOnOwner(ForeignDataWrapperRelationId, fdwId, ownerId);
 
 	/* dependency on extension */
@@ -786,6 +794,11 @@ AlterForeignDataWrapper(ParseState *pstate, AlterFdwStmt *stmt)
 		ereport(WARNING,
 				(errmsg("changing the foreign-data wrapper handler can change behavior of existing foreign tables")));
 	}
+	else
+	{
+		/* handler unchanged */
+		fdwhandler = fdwForm->fdwhandler;
+	}
 
 	if (validator_given)
 	{
@@ -814,6 +827,28 @@ AlterForeignDataWrapper(ParseState *pstate, AlterFdwStmt *stmt)
 	{
 		repl_val[Anum_pg_foreign_data_wrapper_fdwconnection - 1] = ObjectIdGetDatum(fdwconnection);
 		repl_repl[Anum_pg_foreign_data_wrapper_fdwconnection - 1] = true;
+
+		/*
+		 * If the connection function is changed, behavior of dependent
+		 * subscriptions can change.  If NO CONNECTION, dependent
+		 * subscriptions will fail.
+		 */
+		if (OidIsValid(fdwForm->fdwconnection))
+		{
+			if (OidIsValid(fdwconnection))
+				ereport(WARNING,
+						(errmsg("changing the foreign-data wrapper connection function can cause "
+								"the options for dependent objects to become invalid")));
+			else
+				ereport(WARNING,
+						(errmsg("removing the foreign-data wrapper connection function will cause "
+								"dependent subscriptions to fail")));
+		}
+	}
+	else
+	{
+		/* connection function unchanged */
+		fdwconnection = fdwForm->fdwconnection;
 	}
 
 	/*
@@ -854,7 +889,7 @@ AlterForeignDataWrapper(ParseState *pstate, AlterFdwStmt *stmt)
 	ObjectAddressSet(myself, ForeignDataWrapperRelationId, fdwId);
 
 	/* Update function dependencies if we changed them */
-	if (handler_given || validator_given)
+	if (handler_given || validator_given || connection_given)
 	{
 		ObjectAddress referenced;
 
@@ -881,6 +916,14 @@ AlterForeignDataWrapper(ParseState *pstate, AlterFdwStmt *stmt)
 		{
 			referenced.classId = ProcedureRelationId;
 			referenced.objectId = fdwvalidator;
+			referenced.objectSubId = 0;
+			recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+		}
+
+		if (OidIsValid(fdwconnection))
+		{
+			referenced.classId = ProcedureRelationId;
+			referenced.objectId = fdwconnection;
 			referenced.objectSubId = 0;
 			recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 		}

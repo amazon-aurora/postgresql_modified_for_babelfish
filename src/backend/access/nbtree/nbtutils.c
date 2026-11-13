@@ -24,6 +24,7 @@
 #include "common/int.h"
 #include "lib/qunique.h"
 #include "miscadmin.h"
+#include "storage/lwlock.h"
 #include "utils/datum.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
@@ -145,22 +146,6 @@ _bt_mkscankey(Relation rel, IndexTuple itup)
 }
 
 /*
- * free a retracement stack made by _bt_search.
- */
-void
-_bt_freestack(BTStack stack)
-{
-	BTStack		ostack;
-
-	while (stack != NULL)
-	{
-		ostack = stack;
-		stack = stack->bts_parent;
-		pfree(ostack);
-	}
-}
-
-/*
  * qsort comparison function for int arrays
  */
 static int
@@ -252,7 +237,6 @@ _bt_killitems(IndexScanDesc scan)
 		XLogRecPtr	latestlsn;
 
 		Assert(!BTScanPosIsPinned(so->currPos));
-		Assert(RelationNeedsWAL(rel));
 		buf = _bt_getbuf(rel, so->currPos.currPage, BT_READ);
 
 		latestlsn = BufferGetLSNAtomic(buf);

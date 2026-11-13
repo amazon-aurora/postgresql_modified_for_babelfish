@@ -26,6 +26,7 @@
 
 #include "access/heapam.h"
 #include "access/tableam.h"
+#include "access/tupconvert.h"
 #include "access/xact.h"
 #include "catalog/namespace.h"
 #include "commands/copyapi.h"
@@ -156,9 +157,9 @@ static const CopyFromRoutine CopyFromRoutineBinary = {
 static const CopyFromRoutine *
 CopyFromGetRoutine(const CopyFormatOptions *opts)
 {
-	if (opts->csv_mode)
+	if (opts->format == COPY_FORMAT_CSV)
 		return &CopyFromRoutineCSV;
-	else if (opts->binary)
+	else if (opts->format == COPY_FORMAT_BINARY)
 		return &CopyFromRoutineBinary;
 
 	/* default is text */
@@ -262,7 +263,7 @@ CopyFromErrorCallback(void *arg)
 				   cstate->cur_relname);
 		return;
 	}
-	if (cstate->opts.binary)
+	if (cstate->opts.format == COPY_FORMAT_BINARY)
 	{
 		/* can't usefully display the data */
 		if (cstate->cur_attname)
@@ -1653,7 +1654,7 @@ BeginCopyFrom(ParseState *pstate,
 
 			Form_pg_attribute att = TupleDescAttr(tupDesc, attno - 1);
 
-			cstate->domain_with_constraint[i] = DomainHasConstraints(att->atttypid);
+			cstate->domain_with_constraint[i] = DomainHasConstraints(att->atttypid, NULL);
 		}
 	}
 
@@ -1746,6 +1747,7 @@ BeginCopyFrom(ParseState *pstate,
 	cstate->cur_attname = NULL;
 	cstate->cur_attval = NULL;
 	cstate->relname_only = false;
+	cstate->simd_enabled = true;
 
 	/*
 	 * Allocate buffers for the input pipeline.

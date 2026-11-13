@@ -99,6 +99,7 @@ typedef struct
 	AclMode		privileges;
 	List	   *grantees;
 	bool		grant_option;
+	RoleSpec   *grantor;
 	DropBehavior behavior;
 } InternalDefaultACL;
 
@@ -293,6 +294,9 @@ restrict_and_check_grant(bool is_grant, AclMode avail_goptions, bool all_privs,
 		case OBJECT_PARAMETER_ACL:
 			whole_mask = ACL_ALL_RIGHTS_PARAMETER_ACL;
 			break;
+		case OBJECT_PROPGRAPH:
+			whole_mask = ACL_ALL_RIGHTS_PROPGRAPH;
+			break;
 		default:
 			elog(ERROR, "unrecognized object type: %d", objtype);
 			/* not reached, but keep compiler quiet */
@@ -398,22 +402,6 @@ ExecuteGrantStmt(GrantStmt *stmt)
 	const char *errormsg;
 	AclMode		all_privileges;
 
-	if (stmt->grantor)
-	{
-		Oid			grantor;
-
-		grantor = get_rolespec_oid(stmt->grantor, false);
-
-		/*
-		 * Currently, this clause is only for SQL compatibility, not very
-		 * interesting otherwise.
-		 */
-		if (grantor != GetUserId())
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("grantor must be current user")));
-	}
-
 	/*
 	 * Turn the regular GrantStmt into the InternalGrant form.
 	 */
@@ -441,6 +429,7 @@ ExecuteGrantStmt(GrantStmt *stmt)
 	istmt.col_privs = NIL;		/* may get filled below */
 	istmt.grantees = NIL;		/* filled below */
 	istmt.grant_option = stmt->grant_option;
+	istmt.grantor = stmt->grantor;
 	istmt.behavior = stmt->behavior;
 
 	/*
@@ -537,6 +526,10 @@ ExecuteGrantStmt(GrantStmt *stmt)
 			all_privileges = ACL_ALL_RIGHTS_PARAMETER_ACL;
 			errormsg = gettext_noop("invalid privilege type %s for parameter");
 			break;
+		case OBJECT_PROPGRAPH:
+			all_privileges = ACL_ALL_RIGHTS_PROPGRAPH;
+			errormsg = gettext_noop("invalid privilege type %s for property graph");
+			break;
 		default:
 			elog(ERROR, "unrecognized GrantStmt.objtype: %d",
 				 (int) stmt->objtype);
@@ -607,6 +600,7 @@ ExecGrantStmt_oids(InternalGrant *istmt)
 	{
 		case OBJECT_TABLE:
 		case OBJECT_SEQUENCE:
+		case OBJECT_PROPGRAPH:
 			ExecGrant_Relation(istmt);
 			break;
 		case OBJECT_DATABASE:
@@ -703,6 +697,7 @@ objectNamesToOids(ObjectType objtype, List *objnames, bool is_grant)
 
 		case OBJECT_TABLE:
 		case OBJECT_SEQUENCE:
+		case OBJECT_PROPGRAPH:
 
 			/*
 			 * Here, we don't use get_object_address().  It requires that the
@@ -818,6 +813,10 @@ objectsInSchemaToOids(ObjectType objtype, List *nspnames)
 				break;
 			case OBJECT_SEQUENCE:
 				objs = getRelationsInNamespace(namespaceId, RELKIND_SEQUENCE);
+				objects = list_concat(objects, objs);
+				break;
+			case OBJECT_PROPGRAPH:
+				objs = getRelationsInNamespace(namespaceId, RELKIND_PROPGRAPH);
 				objects = list_concat(objects, objs);
 				break;
 			case OBJECT_FUNCTION:
@@ -963,6 +962,7 @@ ExecAlterDefaultPrivilegesStmt(ParseState *pstate, AlterDefaultPrivilegesStmt *s
 	/* privileges to be filled below */
 	iacls.grantees = NIL;		/* filled below */
 	iacls.grant_option = action->grant_option;
+	iacls.grantor = action->grantor;
 	iacls.behavior = action->behavior;
 
 	/*
@@ -1024,6 +1024,10 @@ ExecAlterDefaultPrivilegesStmt(ParseState *pstate, AlterDefaultPrivilegesStmt *s
 		case OBJECT_LARGEOBJECT:
 			all_privileges = ACL_ALL_RIGHTS_LARGEOBJECT;
 			errormsg = gettext_noop("invalid privilege type %s for large object");
+			break;
+		case OBJECT_PROPGRAPH:
+			all_privileges = ACL_ALL_RIGHTS_PROPGRAPH;
+			errormsg = gettext_noop("invalid privilege type %s for property graph");
 			break;
 		default:
 			elog(ERROR, "unrecognized GrantStmt.objtype: %d",
@@ -1489,6 +1493,7 @@ RemoveRoleFromObjectACL(Oid roleid, Oid classid, Oid objid)
 		iacls.privileges = ACL_NO_RIGHTS;
 		iacls.grantees = list_make1_oid(roleid);
 		iacls.grant_option = false;
+		iacls.grantor = NULL;
 		iacls.behavior = DROP_CASCADE;
 
 		/* Do it */
@@ -1545,6 +1550,7 @@ RemoveRoleFromObjectACL(Oid roleid, Oid classid, Oid objid)
 		istmt.col_privs = NIL;
 		istmt.grantees = list_make1_oid(roleid);
 		istmt.grant_option = false;
+		istmt.grantor = NULL;
 		istmt.behavior = DROP_CASCADE;
 
 		ExecGrantStmt_oids(&istmt);
@@ -1699,7 +1705,7 @@ ExecGrant_Attribute(InternalGrant *istmt, Oid relOid, const char *relname,
 	merged_acl = aclconcat(old_rel_acl, old_acl);
 
 	/* Determine ID to do the grant as, and available grant options */
-	select_best_grantor(GetUserId(), col_privileges,
+	select_best_grantor(istmt->grantor, col_privileges,
 						merged_acl, ownerId,
 						&grantorId, &avail_goptions);
 
@@ -1848,11 +1854,20 @@ ExecGrant_Relation(InternalGrant *istmt)
 					 errmsg("\"%s\" is not a sequence",
 							NameStr(pg_class_tuple->relname))));
 
+		if (istmt->objtype == OBJECT_PROPGRAPH &&
+			pg_class_tuple->relkind != RELKIND_PROPGRAPH)
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("\"%s\" is not a property graph",
+							NameStr(pg_class_tuple->relname))));
+
 		/* Adjust the default permissions based on object type */
 		if (istmt->all_privs && istmt->privileges == ACL_NO_RIGHTS)
 		{
 			if (pg_class_tuple->relkind == RELKIND_SEQUENCE)
 				this_privileges = ACL_ALL_RIGHTS_SEQUENCE;
+			else if (pg_class_tuple->relkind == RELKIND_PROPGRAPH)
+				this_privileges = ACL_ALL_RIGHTS_PROPGRAPH;
 			else
 				this_privileges = ACL_ALL_RIGHTS_RELATION;
 		}
@@ -1946,6 +1961,9 @@ ExecGrant_Relation(InternalGrant *istmt)
 				case RELKIND_SEQUENCE:
 					old_acl = acldefault(OBJECT_SEQUENCE, ownerId);
 					break;
+				case RELKIND_PROPGRAPH:
+					old_acl = acldefault(OBJECT_PROPGRAPH, ownerId);
+					break;
 				default:
 					old_acl = acldefault(OBJECT_TABLE, ownerId);
 					break;
@@ -1981,7 +1999,7 @@ ExecGrant_Relation(InternalGrant *istmt)
 			ObjectType	objtype;
 
 			/* Determine ID to do the grant as, and available grant options */
-			select_best_grantor(GetUserId(), this_privileges,
+			select_best_grantor(istmt->grantor, this_privileges,
 								old_acl, ownerId,
 								&grantorId, &avail_goptions);
 
@@ -2212,7 +2230,7 @@ ExecGrant_common(InternalGrant *istmt, Oid classid, AclMode default_privs,
 		}
 
 		/* Determine ID to do the grant as, and available grant options */
-		select_best_grantor(GetUserId(), istmt->privileges,
+		select_best_grantor(istmt->grantor, istmt->privileges,
 							old_acl, ownerId,
 							&grantorId, &avail_goptions);
 
@@ -2373,7 +2391,7 @@ ExecGrant_Largeobject(InternalGrant *istmt)
 		}
 
 		/* Determine ID to do the grant as, and available grant options */
-		select_best_grantor(GetUserId(), istmt->privileges,
+		select_best_grantor(istmt->grantor, istmt->privileges,
 							old_acl, ownerId,
 							&grantorId, &avail_goptions);
 
@@ -2519,7 +2537,7 @@ ExecGrant_Parameter(InternalGrant *istmt)
 		}
 
 		/* Determine ID to do the grant as, and available grant options */
-		select_best_grantor(GetUserId(), istmt->privileges,
+		select_best_grantor(istmt->grantor, istmt->privileges,
 							old_acl, ownerId,
 							&grantorId, &avail_goptions);
 
@@ -2765,6 +2783,9 @@ aclcheck_error(AclResult aclerr, ObjectType objtype,
 					case OBJECT_PROCEDURE:
 						msg = gettext_noop("permission denied for procedure %s");
 						break;
+					case OBJECT_PROPGRAPH:
+						msg = gettext_noop("permission denied for property graph %s");
+						break;
 					case OBJECT_PUBLICATION:
 						msg = gettext_noop("permission denied for publication %s");
 						break;
@@ -2890,6 +2911,9 @@ aclcheck_error(AclResult aclerr, ObjectType objtype,
 						break;
 					case OBJECT_PROCEDURE:
 						msg = gettext_noop("must be owner of procedure %s");
+						break;
+					case OBJECT_PROPGRAPH:
+						msg = gettext_noop("must be owner of property graph %s");
 						break;
 					case OBJECT_PUBLICATION:
 						msg = gettext_noop("must be owner of publication %s");
@@ -3027,6 +3051,7 @@ pg_aclmask(ObjectType objtype, Oid object_oid, AttrNumber attnum, Oid roleid,
 				pg_attribute_aclmask(object_oid, attnum, roleid, mask, how);
 		case OBJECT_TABLE:
 		case OBJECT_SEQUENCE:
+		case OBJECT_PROPGRAPH:
 			return pg_class_aclmask(object_oid, roleid, mask, how);
 		case OBJECT_DATABASE:
 			return object_aclmask(DatabaseRelationId, object_oid, roleid, mask, how);

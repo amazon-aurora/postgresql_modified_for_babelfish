@@ -84,6 +84,14 @@
 #include <libintl.h>
 #endif
 
+#ifdef __cplusplus
+extern "C++"
+{
+/* This header is used in the definition of various C++ things below. */
+#include <type_traits>
+}
+#endif
+
  /* Pull in fundamental symbols that we also expose to applications */
 #include "postgres_ext.h"
 
@@ -425,6 +433,24 @@
 #endif
 
 /*
+ * When we call clang to generate bitcode, we might be using configure results
+ * from a different compiler, which might not be fully compatible with the
+ * clang we are using.  The fully correct solution would be to run a separate
+ * set of configure tests for that clang-for-bitcode, but that could be very
+ * difficult to implement, and in practice clang supports most things other
+ * compilers support.  So this section just contains some hardcoded ugliness
+ * to override some configure results where it is necessary.
+ */
+#if defined(__clang__)
+#if __clang_major__ < 19
+#undef HAVE_TYPEOF_UNQUAL
+#else
+#undef typeof_unqual
+#define typeof_unqual __typeof_unqual__
+#endif
+#endif							/* __clang__ */
+
+/*
  * Provide typeof in C++ for C++ compilers that don't support typeof natively.
  * It might be spelled __typeof__ instead of typeof, in which case
  * pg_cxx_typeof provides that mapping. If neither is supported, we can use
@@ -435,15 +461,28 @@
  * [1]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n2927.htm#existing-decltype
  */
 #if defined(__cplusplus)
+#undef typeof
 #ifdef pg_cxx_typeof
 #define typeof(x) pg_cxx_typeof(x)
 #elif !defined(HAVE_CXX_TYPEOF)
-#define typeof(x) std::remove_reference_t<decltype(x)>
+#define typeof(x) std::remove_reference<decltype(x)>::type
 #endif
 #ifndef HAVE_TYPEOF
 #define HAVE_TYPEOF 1
 #endif
+/*
+ * and analogously for typeof_unqual
+ */
+#undef typeof_unqual
+#ifdef pg_cxx_typeof_unqual
+#define typeof_unqual(x) pg_cxx_typeof_unqual(x)
+#elif !defined(HAVE_CXX_TYPEOF_UNQUAL)
+#define typeof_unqual(x) std::remove_cv<std::remove_reference<decltype(x)>::type>::type
 #endif
+#ifndef HAVE_TYPEOF_UNQUAL
+#define HAVE_TYPEOF_UNQUAL 1
+#endif
+#endif							/* __cplusplus */
 
 /*
  * CppAsString

@@ -191,7 +191,9 @@ CREATE VIEW pg_stats WITH (security_barrier) AS
     SELECT
         nspname AS schemaname,
         relname AS tablename,
+        attrelid AS tableid,
         attname AS attname,
+        attnum,
         stainherit AS inherited,
         stanullfrac AS null_frac,
         stawidth AS avg_width,
@@ -278,8 +280,10 @@ REVOKE ALL ON pg_statistic FROM public;
 CREATE VIEW pg_stats_ext WITH (security_barrier) AS
     SELECT cn.nspname AS schemaname,
            c.relname AS tablename,
+           s.stxrelid AS tableid,
            sn.nspname AS statistics_schemaname,
            s.stxname AS statistics_name,
+           s.oid AS statistics_id,
            pg_get_userbyid(s.stxowner) AS statistics_owner,
            ( SELECT array_agg(a.attname ORDER BY a.attnum)
              FROM unnest(s.stxkeys) k
@@ -312,8 +316,10 @@ CREATE VIEW pg_stats_ext WITH (security_barrier) AS
 CREATE VIEW pg_stats_ext_exprs WITH (security_barrier) AS
     SELECT cn.nspname AS schemaname,
            c.relname AS tablename,
+           s.stxrelid AS tableid,
            sn.nspname AS statistics_schemaname,
            s.stxname AS statistics_name,
+           s.oid AS statistics_id,
            pg_get_userbyid(s.stxowner) AS statistics_owner,
            stat.expr,
            sd.stxdinherit AS inherited,
@@ -896,7 +902,8 @@ CREATE VIEW pg_statio_all_sequences AS
             C.relname AS relname,
             pg_stat_get_blocks_fetched(C.oid) -
                     pg_stat_get_blocks_hit(C.oid) AS blks_read,
-            pg_stat_get_blocks_hit(C.oid) AS blks_hit
+            pg_stat_get_blocks_hit(C.oid) AS blks_hit,
+            pg_stat_get_stat_reset_time(C.oid) AS stats_reset
     FROM pg_class C
             LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind = 'S';
@@ -977,6 +984,15 @@ CREATE VIEW pg_stat_slru AS
             s.truncates,
             s.stats_reset
     FROM pg_stat_get_slru() s;
+
+CREATE VIEW pg_stat_lock AS
+    SELECT
+            l.locktype,
+            l.waits,
+            l.wait_time,
+            l.fastpath_exceeded,
+            l.stats_reset
+    FROM pg_stat_get_lock() l;
 
 CREATE VIEW pg_stat_wal_receiver AS
     SELECT
@@ -1163,7 +1179,8 @@ CREATE VIEW pg_stat_database_conflicts AS
             pg_stat_get_db_conflict_snapshot(D.oid) AS confl_snapshot,
             pg_stat_get_db_conflict_bufferpin(D.oid) AS confl_bufferpin,
             pg_stat_get_db_conflict_startup_deadlock(D.oid) AS confl_deadlock,
-            pg_stat_get_db_conflict_logicalslot(D.oid) AS confl_active_logicalslot
+            pg_stat_get_db_conflict_logicalslot(D.oid) AS confl_active_logicalslot,
+            pg_stat_get_db_stat_reset_time(D.oid) AS stats_reset
     FROM pg_database D;
 
 CREATE VIEW pg_stat_user_functions AS

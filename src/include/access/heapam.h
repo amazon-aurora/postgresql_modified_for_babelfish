@@ -42,6 +42,7 @@
 /* "options" flag bits for heap_page_prune_and_freeze */
 #define HEAP_PAGE_PRUNE_MARK_UNUSED_NOW		(1 << 0)
 #define HEAP_PAGE_PRUNE_FREEZE				(1 << 1)
+#define HEAP_PAGE_PRUNE_ALLOW_FAST_PATH		(1 << 2)
 
 typedef struct BulkInsertStateData *BulkInsertState;
 typedef struct GlobalVisState GlobalVisState;
@@ -94,6 +95,12 @@ typedef struct HeapScanDescData
 	 */
 	ParallelBlockTableScanWorkerData *rs_parallelworkerdata;
 
+	/*
+	 * For sequential scans and bitmap heap scans. The current heap block's
+	 * corresponding page in the visibility map.
+	 */
+	Buffer		rs_vmbuffer;
+
 	/* these fields only used in page-at-a-time mode and for bitmap scans */
 	uint32		rs_cindex;		/* current tuple's index in vistuples */
 	uint32		rs_ntuples;		/* number of visible tuples on page */
@@ -116,8 +123,14 @@ typedef struct IndexFetchHeapData
 {
 	IndexFetchTableData xs_base;	/* AM independent part of the descriptor */
 
-	Buffer		xs_cbuf;		/* current heap buffer in scan, if any */
-	/* NB: if xs_cbuf is not InvalidBuffer, we hold a pin on that buffer */
+	/*
+	 * Current heap buffer in scan, if any. NB: if xs_cbuf is not
+	 * InvalidBuffer, we hold a pin on that buffer.
+	 */
+	Buffer		xs_cbuf;
+
+	/* Current heap block's corresponding page in the visibility map */
+	Buffer		xs_vmbuffer;
 } IndexFetchHeapData;
 
 /* Result codes for HeapTupleSatisfiesVacuum */
@@ -251,6 +264,12 @@ typedef struct PruneFreezeParams
 	Buffer		buffer;			/* buffer to be pruned */
 
 	/*
+	 * Callers should provide a pinned vmbuffer corresponding to the heap
+	 * block in buffer. We will check for and repair any corruption in the VM.
+	 */
+	Buffer		vmbuffer;
+
+	/*
 	 * The reason pruning was performed.  It is used to set the WAL record
 	 * opcode which is used for debugging and analysis purposes.
 	 */
@@ -311,6 +330,12 @@ typedef struct PruneFreezeResult
 	bool		set_all_visible;
 	bool		set_all_frozen;
 	TransactionId vm_conflict_horizon;
+
+	/*
+	 * The value of the vmbuffer's vmbits at the beginning of pruning. It is
+	 * cleared if VM corruption is found and corrected.
+	 */
+	uint8		old_vmbits;
 
 	/*
 	 * Whether or not the page makes rel truncation unsafe.  This is set to
@@ -438,7 +463,8 @@ extern TransactionId heap_index_delete_tuples(Relation rel,
 											  TM_IndexDeleteOp *delstate);
 
 /* in heap/pruneheap.c */
-extern void heap_page_prune_opt(Relation relation, Buffer buffer);
+extern void heap_page_prune_opt(Relation relation, Buffer buffer,
+								Buffer *vmbuffer);
 extern void heap_page_prune_and_freeze(PruneFreezeParams *params,
 									   PruneFreezeResult *presult,
 									   OffsetNumber *off_loc,

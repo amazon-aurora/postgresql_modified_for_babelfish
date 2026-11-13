@@ -53,6 +53,7 @@
 #include "nodes/execnodes.h"
 #include "pgstat.h"
 #include "storage/lmgr.h"
+#include "storage/lock.h"
 #include "storage/predicate.h"
 #include "utils/ruleutils.h"
 #include "utils/snapmgr.h"
@@ -445,7 +446,7 @@ index_markpos(IndexScanDesc scan)
 void
 index_restrpos(IndexScanDesc scan)
 {
-	Assert(IsMVCCSnapshot(scan->xs_snapshot));
+	Assert(IsMVCCLikeSnapshot(scan->xs_snapshot));
 
 	SCAN_CHECKS;
 	CHECK_SCAN_PROCEDURE(amrestrpos);

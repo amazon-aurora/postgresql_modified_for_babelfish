@@ -76,7 +76,9 @@
 #include "pgstat.h"
 #include "rewrite/rewriteDefine.h"
 #include "rewrite/rowsecurity.h"
+#include "storage/fd.h"
 #include "storage/lmgr.h"
+#include "storage/lock.h"
 #include "storage/smgr.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
@@ -668,14 +670,6 @@ RelationBuildTupleDesc(Relation relation)
 			 need, RelationGetRelid(relation));
 
 	/*
-	 * We can easily set the attcacheoff value for the first attribute: it
-	 * must be zero.  This eliminates the need for special cases for attnum=1
-	 * that used to exist in fastgetattr() and index_getattr().
-	 */
-	if (RelationGetNumberOfAttributes(relation) > 0)
-		TupleDescCompactAttr(relation->rd_att, 0)->attcacheoff = 0;
-
-	/*
 	 * Set up constraint/default info
 	 */
 	if (constr->has_not_null ||
@@ -730,6 +724,8 @@ RelationBuildTupleDesc(Relation relation)
 		pfree(constr);
 		relation->rd_att->constr = NULL;
 	}
+
+	TupleDescFinalize(relation->rd_att);
 }
 
 /*
@@ -1985,8 +1981,7 @@ formrdesc(const char *relationName, Oid relationReltype,
 		populate_compact_attribute(relation->rd_att, i);
 	}
 
-	/* initialize first attribute's attcacheoff, cf RelationBuildTupleDesc */
-	TupleDescCompactAttr(relation->rd_att, 0)->attcacheoff = 0;
+	TupleDescFinalize(relation->rd_att);
 
 	/* mark not-null status */
 	if (has_not_null)
@@ -3690,6 +3685,8 @@ RelationBuildLocalRelation(const char *relname,
 	for (i = 0; i < natts; i++)
 		TupleDescAttr(rel->rd_att, i)->attrelid = relid;
 
+	TupleDescFinalize(rel->rd_att);
+
 	rel->rd_rel->reltablespace = reltablespace;
 
 	if (mapped_relation)
@@ -4452,8 +4449,7 @@ BuildHardcodedDescriptor(int natts, const FormData_pg_attribute *attrs)
 		populate_compact_attribute(result, i);
 	}
 
-	/* initialize first attribute's attcacheoff, cf RelationBuildTupleDesc */
-	TupleDescCompactAttr(result, 0)->attcacheoff = 0;
+	TupleDescFinalize(result);
 
 	/* Note: we don't bother to set up a TupleConstr entry */
 
@@ -6302,6 +6298,8 @@ load_relcache_init_file(bool shared)
 
 			populate_compact_attribute(rel->rd_att, i);
 		}
+
+		TupleDescFinalize(rel->rd_att);
 
 		/* next read the access method specific field */
 		if (fread(&len, 1, sizeof(len), fp) != sizeof(len))

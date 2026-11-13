@@ -786,13 +786,6 @@ AC_LINK_IFELSE([AC_LANG_PROGRAM([], [return 0;])],
   [AC_MSG_RESULT(no)
    AC_MSG_ERROR([cannot proceed])])
 
-# Defend against gcc -ffast-math
-if test "$GCC" = yes; then
-AC_COMPILE_IFELSE([AC_LANG_PROGRAM([], [@%:@ifdef __FAST_MATH__
-choke me
-@%:@endif])], [], [AC_MSG_ERROR([do not put -ffast-math in CFLAGS])])
-fi
-
 # Defend against clang being used on x86-32 without SSE2 enabled.  As current
 # versions of clang do not understand -fexcess-precision=standard, the use of
 # x87 floating point operations leads to problems like isinf possibly returning
@@ -1450,7 +1443,7 @@ if test "$with_ssl" = openssl ; then
   # Function introduced in OpenSSL 1.0.2, not in LibreSSL.
   AC_CHECK_FUNCS([SSL_CTX_set_cert_cb])
   # Function introduced in OpenSSL 1.1.1, not in LibreSSL.
-  AC_CHECK_FUNCS([X509_get_signature_info SSL_CTX_set_num_tickets SSL_CTX_set_keylog_callback])
+  AC_CHECK_FUNCS([X509_get_signature_info SSL_CTX_set_num_tickets SSL_CTX_set_keylog_callback SSL_CTX_set_client_hello_cb])
   AC_DEFINE([USE_OPENSSL], 1, [Define to 1 to build with OpenSSL support. (--with-ssl=openssl)])
 elif test "$with_ssl" != no ; then
   AC_MSG_ERROR([--with-ssl must specify openssl])
@@ -1732,6 +1725,8 @@ PGAC_PRINTF_ARCHETYPE
 PGAC_CXX_PRINTF_ARCHETYPE
 PGAC_C_TYPEOF
 PGAC_CXX_TYPEOF
+PGAC_C_TYPEOF_UNQUAL
+PGAC_CXX_TYPEOF_UNQUAL
 PGAC_C_TYPES_COMPATIBLE
 PGAC_C_BUILTIN_CONSTANT_P
 PGAC_C_BUILTIN_OP_OVERFLOW
@@ -2031,6 +2026,14 @@ Could not execute a simple test program.  This may be a problem
 related to locating shared libraries.  Check the file 'config.log'
 for the exact reason.]])],
 [AC_MSG_RESULT([cross-compiling])])
+
+# These flags are supported in all C11-capable GCC/Clang versions,
+# so no capability test is needed.  Added here to avoid affecting configure probes,
+# particularly PGAC_PRINTF_ARCHETYPE which uses -Werror and would fail to detect
+# gnu_printf if -Wstrict-prototypes is active.
+if test "$GCC" = yes -a "$ICC" = no; then
+  CFLAGS="$CFLAGS -Wstrict-prototypes -Wold-style-definition"
+fi
 
 # --------------------
 # Run tests below here

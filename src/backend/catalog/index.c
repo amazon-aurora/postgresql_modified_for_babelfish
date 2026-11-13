@@ -24,6 +24,7 @@
 #include <unistd.h>
 
 #include "access/amapi.h"
+#include "access/attmap.h"
 #include "access/heapam.h"
 #include "access/multixact.h"
 #include "access/relscan.h"
@@ -481,6 +482,8 @@ ConstructTupleDescriptor(Relation heapRelation,
 
 		populate_compact_attribute(indexTupDesc, i);
 	}
+
+	TupleDescFinalize(indexTupDesc);
 
 	return indexTupDesc;
 }
@@ -3744,7 +3747,7 @@ reindex_index(const ReindexStmt *stmt, Oid indexId,
 		ObjectAddressSet(address, RelationRelationId, indexId);
 		EventTriggerCollectSimpleCommand(address,
 										 InvalidObjectAddress,
-										 (Node *) stmt);
+										 (const Node *) stmt);
 	}
 
 	/*

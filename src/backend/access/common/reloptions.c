@@ -29,6 +29,7 @@
 #include "commands/tablespace.h"
 #include "nodes/makefuncs.h"
 #include "parser/parser.h"
+#include "storage/lock.h"
 #include "utils/array.h"
 #include "utils/attoptcache.h"
 #include "utils/builtins.h"

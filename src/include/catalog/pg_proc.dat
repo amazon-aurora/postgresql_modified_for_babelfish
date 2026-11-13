@@ -1208,6 +1208,13 @@
   proname => 'int8', prorettype => 'int8', proargtypes => 'bytea',
   prosrc => 'bytea_int8' },
 
+{ oid => '9880', descr => 'convert uuid to bytea',
+  proname => 'bytea', prorettype => 'bytea', proargtypes => 'uuid',
+  prosrc => 'uuid_bytea' },
+{ oid => '9881', descr => 'convert bytea to uuid',
+  proname => 'uuid', prorettype => 'uuid', proargtypes => 'bytea',
+  prosrc => 'bytea_uuid' },
+
 { oid => '449', descr => 'hash',
   proname => 'hashint2', prorettype => 'int4', proargtypes => 'int2',
   prosrc => 'hashint2' },
@@ -3965,6 +3972,9 @@
   proargtypes => 'oid oid', prosrc => 'oidge' },
 
 # System-view support functions
+{ oid => '8302', descr => 'source text of a property graph',
+  proname => 'pg_get_propgraphdef', provolatile => 's', prorettype => 'text',
+  proargtypes => 'oid', prosrc => 'pg_get_propgraphdef' },
 { oid => '1573', descr => 'source text of a rule',
   proname => 'pg_get_ruledef', provolatile => 's', prorettype => 'text',
   proargtypes => 'oid', prosrc => 'pg_get_ruledef' },
@@ -6037,6 +6047,14 @@
   proargmodes => '{o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o}',
   proargnames => '{backend_type,object,context,reads,read_bytes,read_time,writes,write_bytes,write_time,writebacks,writeback_time,extends,extend_bytes,extend_time,hits,evictions,reuses,fsyncs,fsync_time,stats_reset}',
   prosrc => 'pg_stat_get_io' },
+
+{ oid => '9375', descr => 'statistics: per lock type statistics',
+  proname => 'pg_stat_get_lock', prorows => '10', proretset => 't',
+  provolatile => 'v', proparallel => 'r', prorettype => 'record',
+  proargtypes => '', proallargtypes => '{text,int8,int8,int8,timestamptz}',
+  proargmodes => '{o,o,o,o,o}',
+  proargnames => '{locktype,waits,wait_time,fastpath_exceeded,stats_reset}',
+  prosrc => 'pg_stat_get_lock' },
 
 { oid => '6386', descr => 'statistics: backend IO statistics',
   proname => 'pg_stat_get_backend_io', prorows => '5', proretset => 't',
