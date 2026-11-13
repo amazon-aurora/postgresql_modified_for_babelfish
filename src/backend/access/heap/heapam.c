@@ -59,7 +59,7 @@
 
 
 static HeapTuple heap_prepare_insert(Relation relation, HeapTuple tup,
-									 TransactionId xid, CommandId cid, int options);
+									 TransactionId xid, CommandId cid, uint32 options);
 static XLogRecPtr log_heap_update(Relation reln, Buffer oldbuf,
 								  Buffer newbuf, HeapTuple oldtup,
 								  HeapTuple newtup, HeapTuple old_key_tuple,
@@ -636,7 +636,8 @@ heap_prepare_pagescan(TableScanDesc sscan)
 	/*
 	 * Prune and repair fragmentation for the whole page, if possible.
 	 */
-	heap_page_prune_opt(scan->rs_base.rs_rd, buffer, &scan->rs_vmbuffer);
+	heap_page_prune_opt(scan->rs_base.rs_rd, buffer, &scan->rs_vmbuffer,
+						sscan->rs_flags & SO_HINT_REL_READ_ONLY);
 
 	/*
 	 * We must hold share lock on the buffer content while examining tuple
@@ -1701,8 +1702,7 @@ heap_fetch(Relation relation,
 	offnum = ItemPointerGetOffsetNumber(tid);
 	if (offnum < FirstOffsetNumber || offnum > PageGetMaxOffsetNumber(page))
 	{
-		LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
-		ReleaseBuffer(buffer);
+		UnlockReleaseBuffer(buffer);
 		*userbuf = InvalidBuffer;
 		tuple->t_data = NULL;
 		return false;
@@ -1718,8 +1718,7 @@ heap_fetch(Relation relation,
 	 */
 	if (!ItemIdIsNormal(lp))
 	{
-		LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
-		ReleaseBuffer(buffer);
+		UnlockReleaseBuffer(buffer);
 		*userbuf = InvalidBuffer;
 		tuple->t_data = NULL;
 		return false;
@@ -2159,11 +2158,12 @@ ReleaseBulkInsertStatePin(BulkInsertState bistate)
  */
 void
 heap_insert(Relation relation, HeapTuple tup, CommandId cid,
-			int options, BulkInsertState bistate)
+			uint32 options, BulkInsertState bistate)
 {
 	TransactionId xid = GetCurrentTransactionId();
 	HeapTuple	heaptup;
 	Buffer		buffer;
+	Page		page;
 	Buffer		vmbuffer = InvalidBuffer;
 	bool		all_visible_cleared = false;
 
@@ -2190,6 +2190,8 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 									   &vmbuffer, NULL,
 									   0);
 
+	page = BufferGetPage(buffer);
+
 	/*
 	 * We're about to do the actual insert -- but check for conflict first, to
 	 * avoid possibly having to roll back work we've just done.
@@ -2213,25 +2215,30 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 	RelationPutHeapTuple(relation, buffer, heaptup,
 						 (options & HEAP_INSERT_SPECULATIVE) != 0);
 
-	if (PageIsAllVisible(BufferGetPage(buffer)))
+	if (PageIsAllVisible(page))
 	{
 		all_visible_cleared = true;
-		PageClearAllVisible(BufferGetPage(buffer));
+		PageClearAllVisible(page);
 		visibilitymap_clear(relation,
 							ItemPointerGetBlockNumber(&(heaptup->t_self)),
 							vmbuffer, VISIBILITYMAP_VALID_BITS);
 	}
 
 	/*
-	 * XXX Should we set PageSetPrunable on this page ?
+	 * Set pd_prune_xid to trigger heap_page_prune_and_freeze() once the page
+	 * is full so that we can set the page all-visible in the VM on the next
+	 * page access.
 	 *
-	 * The inserting transaction may eventually abort thus making this tuple
-	 * DEAD and hence available for pruning. Though we don't want to optimize
-	 * for aborts, if no other tuple in this page is UPDATEd/DELETEd, the
-	 * aborted tuple will never be pruned until next vacuum is triggered.
+	 * Setting pd_prune_xid is also handy if the inserting transaction
+	 * eventually aborts making this tuple DEAD and hence available for
+	 * pruning. If no other tuple in this page is UPDATEd/DELETEd, the aborted
+	 * tuple would never otherwise be pruned until next vacuum is triggered.
 	 *
-	 * If you do add PageSetPrunable here, add it in heap_xlog_insert too.
+	 * Don't set it if we are in bootstrap mode or we are inserting a frozen
+	 * tuple, as there is no further pruning/freezing needed in those cases.
 	 */
+	if (TransactionIdIsNormal(xid) && !(options & HEAP_INSERT_FROZEN))
+		PageSetPrunable(page, xid);
 
 	MarkBufferDirty(buffer);
 
@@ -2241,7 +2248,6 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 		xl_heap_insert xlrec;
 		xl_heap_header xlhdr;
 		XLogRecPtr	recptr;
-		Page		page = BufferGetPage(buffer);
 		uint8		info = XLOG_HEAP_INSERT;
 		int			bufflags = 0;
 
@@ -2350,7 +2356,7 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
  */
 static HeapTuple
 heap_prepare_insert(Relation relation, HeapTuple tup, TransactionId xid,
-					CommandId cid, int options)
+					CommandId cid, uint32 options)
 {
 	/*
 	 * To allow parallel inserts, we need to ensure that they are safe to be
@@ -2430,7 +2436,7 @@ heap_multi_insert_pages(HeapTuple *heaptuples, int done, int ntuples, Size saveF
  */
 void
 heap_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
-				  CommandId cid, int options, BulkInsertState bistate)
+				  CommandId cid, uint32 options, BulkInsertState bistate)
 {
 	TransactionId xid = GetCurrentTransactionId();
 	HeapTuple  *heaptuples;
@@ -2598,16 +2604,20 @@ heap_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
 		{
 			PageSetAllVisible(page);
 			PageClearPrunable(page);
-			visibilitymap_set_vmbits(BufferGetBlockNumber(buffer),
-									 vmbuffer,
-									 VISIBILITYMAP_ALL_VISIBLE |
-									 VISIBILITYMAP_ALL_FROZEN,
-									 relation->rd_locator);
+			visibilitymap_set(BufferGetBlockNumber(buffer),
+							  vmbuffer,
+							  VISIBILITYMAP_ALL_VISIBLE |
+							  VISIBILITYMAP_ALL_FROZEN,
+							  relation->rd_locator);
 		}
 
 		/*
-		 * XXX Should we set PageSetPrunable on this page ? See heap_insert()
+		 * Set pd_prune_xid. See heap_insert() for more on why we do this when
+		 * inserting tuples. This only makes sense if we aren't already
+		 * setting the page frozen in the VM and we're not in bootstrap mode.
 		 */
+		if (!all_frozen_set && TransactionIdIsNormal(xid))
+			PageSetPrunable(page, xid);
 
 		MarkBufferDirty(buffer);
 
@@ -4149,12 +4159,12 @@ l2:
 	 * the subsequent page pruning will be a no-op and the hint will be
 	 * cleared.
 	 *
-	 * XXX Should we set hint on newbuf as well?  If the transaction aborts,
-	 * there would be a prunable tuple in the newbuf; but for now we choose
-	 * not to optimize for aborts.  Note that heap_xlog_update must be kept in
-	 * sync if this decision changes.
+	 * We set the new page prunable as well. See heap_insert() for more on why
+	 * we do this when inserting tuples.
 	 */
 	PageSetPrunable(page, xid);
+	if (newbuf != buffer)
+		PageSetPrunable(newpage, xid);
 
 	if (use_hot_update)
 	{
@@ -8909,50 +8919,6 @@ bottomup_sort_and_shrink(TM_IndexDeleteOp *delstate)
 	pfree(blockgroups);
 
 	return nblocksfavorable;
-}
-
-/*
- * Perform XLogInsert for a heap-visible operation.  'block' is the block
- * being marked all-visible, and vm_buffer is the buffer containing the
- * corresponding visibility map block.  Both should have already been modified
- * and dirtied.
- *
- * snapshotConflictHorizon comes from the largest xmin on the page being
- * marked all-visible.  REDO routine uses it to generate recovery conflicts.
- *
- * If checksums or wal_log_hints are enabled, we may also generate a full-page
- * image of heap_buffer. Otherwise, we optimize away the FPI (by specifying
- * REGBUF_NO_IMAGE for the heap buffer), in which case the caller should *not*
- * update the heap page's LSN.
- */
-XLogRecPtr
-log_heap_visible(Relation rel, Buffer heap_buffer, Buffer vm_buffer,
-				 TransactionId snapshotConflictHorizon, uint8 vmflags)
-{
-	xl_heap_visible xlrec;
-	XLogRecPtr	recptr;
-	uint8		flags;
-
-	Assert(BufferIsValid(heap_buffer));
-	Assert(BufferIsValid(vm_buffer));
-
-	xlrec.snapshotConflictHorizon = snapshotConflictHorizon;
-	xlrec.flags = vmflags;
-	if (RelationIsAccessibleInLogicalDecoding(rel))
-		xlrec.flags |= VISIBILITYMAP_XLOG_CATALOG_REL;
-	XLogBeginInsert();
-	XLogRegisterData(&xlrec, SizeOfHeapVisible);
-
-	XLogRegisterBuffer(0, vm_buffer, 0);
-
-	flags = REGBUF_STANDARD;
-	if (!XLogHintBitIsNeeded())
-		flags |= REGBUF_NO_IMAGE;
-	XLogRegisterBuffer(1, heap_buffer, flags);
-
-	recptr = XLogInsert(RM_HEAP2_ID, XLOG_HEAP2_VISIBLE);
-
-	return recptr;
 }
 
 /*

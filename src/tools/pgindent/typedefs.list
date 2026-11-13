@@ -187,6 +187,7 @@ AuthToken
 AutoPrewarmReadStreamData
 AutoPrewarmSharedState
 AutoVacOpts
+AutoVacuumScores
 AutoVacuumShmemStruct
 AutoVacuumWorkItem
 AutoVacuumWorkItemType
@@ -308,6 +309,7 @@ BlockSampler
 BlockSamplerData
 BlockedProcData
 BlockedProcsData
+BlocksReadStreamData
 BlocktableEntry
 BloomBuildState
 BloomFilter
@@ -816,6 +818,7 @@ ExtensionInfo
 ExtensionLocation
 ExtensionSiblingCache
 ExtensionVersionInfo
+FastPathMeta
 FDWCollateState
 FD_SET
 FILE
@@ -1578,6 +1581,7 @@ LWLock
 LWLockHandle
 LWLockMode
 LWLockPadded
+LWLockTrancheShmemData
 LZ4F_compressionContext_t
 LZ4F_decompressOptions_t
 LZ4F_decompressionContext_t
@@ -2944,6 +2948,7 @@ SplitTextOutputData
 SplitVar
 StackElem
 StakindFlags
+StartBufferIOResult
 StartDataPtrType
 StartLOPtrType
 StartLOsPtrType
@@ -3099,6 +3104,7 @@ TableScanDesc
 TableScanDescData
 TableSpaceCacheEntry
 TableSpaceOpts
+TableToProcess
 TablespaceList
 TablespaceListCell
 TapeBlockTrailer
@@ -3587,9 +3593,6 @@ bh_node_type
 binaryheap
 binaryheap_comparator
 bitmapword
-bits16
-bits32
-bits8
 blockreftable_hash
 blockreftable_iterator
 bloom_filter
@@ -3976,6 +3979,7 @@ pg_enc2name
 pg_encname
 pg_fe_sasl_mech
 pg_funcptr_t
+pg_getopt_ctx
 pg_gssinfo
 pg_hmac_ctx
 pg_hmac_errno
@@ -4035,14 +4039,12 @@ pgpa_join_strategy
 pgpa_join_unroller
 pgpa_output_context
 pgpa_plan_walker_context
+pgpa_planner_info
 pgpa_planner_state
 pgpa_qf_type
 pgpa_query_feature
-pgpa_ri_checker
-pgpa_ri_checker_key
 pgpa_scan
 pgpa_scan_strategy
-pgpa_sj_unique_rel
 pgpa_target_type
 pgpa_trove
 pgpa_trove_entry
@@ -4426,7 +4428,6 @@ xl_heap_prune
 xl_heap_rewrite_mapping
 xl_heap_truncate
 xl_heap_update
-xl_heap_visible
 xl_invalid_page
 xl_invalid_page_key
 xl_invalidations

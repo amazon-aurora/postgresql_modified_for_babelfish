@@ -52,8 +52,13 @@ char	   *TmpWalSegDir = NULL;
  * are archived or retrieved out of sequence.
  *
  * To minimize the memory footprint, entries and their associated buffers are
- * freed immediately once consumed. Since pg_waldump does not request the same
- * bytes twice, a segment is discarded as soon as pg_waldump moves past it.
+ * freed once consumed.  Since pg_waldump does not request the same bytes
+ * twice (after it's located the point at which it should start decoding),
+ * a segment can be discarded as soon as pg_waldump moves past it.  Moreover,
+ * if we read a segment that won't be needed till later, we spill its data to
+ * a temporary file instead of retaining it in memory.  This ensures that
+ * pg_waldump can process even very large tar archives without needing more
+ * than a few WAL segments' worth of memory space.
  */
 typedef struct ArchivedWALFile
 {
@@ -65,7 +70,8 @@ typedef struct ArchivedWALFile
 								 * temporary file */
 
 	int			read_len;		/* total bytes received from archive for this
-								 * segment, including already-consumed data */
+								 * segment (same as buf->len, unless we have
+								 * spilled the data to a temp file) */
 } ArchivedWALFile;
 
 static uint32 hash_string_pointer(const char *s);
@@ -89,9 +95,8 @@ typedef struct astreamer_waldump
 
 static ArchivedWALFile *get_archive_wal_entry(const char *fname,
 											  XLogDumpPrivate *privateInfo);
-static bool read_archive_file(XLogDumpPrivate *privateInfo, Size count);
+static bool read_archive_file(XLogDumpPrivate *privateInfo);
 static void setup_tmpwal_dir(const char *waldir);
-static void cleanup_tmpwal_dir_atexit(void);
 
 static FILE *prepare_tmp_write(const char *fname, XLogDumpPrivate *privateInfo);
 static void perform_tmp_write(const char *fname, StringInfo buf, FILE *file);
@@ -156,14 +161,11 @@ init_archive_reader(XLogDumpPrivate *privateInfo,
 	privateInfo->archive_streamer = streamer;
 
 	/*
-	 * Allocate a buffer for reading the archive file to facilitate content
-	 * decoding; read requests must not exceed the allocated buffer size.
+	 * Allocate a buffer for reading the archive file to begin content
+	 * decoding.
 	 */
 	privateInfo->archive_read_buf = pg_malloc(READ_CHUNK_SIZE);
-
-#ifdef USE_ASSERT_CHECKING
 	privateInfo->archive_read_buf_size = READ_CHUNK_SIZE;
-#endif
 
 	/*
 	 * Hash table storing WAL entries read from the archive with an arbitrary
@@ -182,7 +184,7 @@ init_archive_reader(XLogDumpPrivate *privateInfo,
 	 */
 	while (entry == NULL)
 	{
-		if (!read_archive_file(privateInfo, XLOG_BLCKSZ))
+		if (!read_archive_file(privateInfo))
 			pg_fatal("could not find WAL in archive \"%s\"",
 					 privateInfo->archive_name);
 
@@ -311,6 +313,7 @@ read_archive_wal_page(XLogDumpPrivate *privateInfo, XLogRecPtr targetPagePtr,
 	XLByteToSeg(targetPagePtr, segno, segsize);
 	XLogFileName(fname, privateInfo->timeline, segno, segsize);
 	entry = get_archive_wal_entry(fname, privateInfo);
+	Assert(!entry->spilled);
 
 	while (nbytes > 0)
 	{
@@ -322,9 +325,9 @@ read_archive_wal_page(XLogDumpPrivate *privateInfo, XLogRecPtr targetPagePtr,
 		/*
 		 * Calculate the LSN range currently residing in the buffer.
 		 *
-		 * read_len tracks total bytes received for this segment (including
-		 * already-discarded data), so endPtr is the LSN just past the last
-		 * buffered byte, and startPtr is the LSN of the first buffered byte.
+		 * read_len tracks total bytes received for this segment, so endPtr is
+		 * the LSN just past the last buffered byte, and startPtr is the LSN
+		 * of the first buffered byte.
 		 */
 		XLogSegNoOffsetToRecPtr(segno, entry->read_len, segsize, endPtr);
 		startPtr = endPtr - bufLen;
@@ -355,58 +358,29 @@ read_archive_wal_page(XLogDumpPrivate *privateInfo, XLogRecPtr targetPagePtr,
 		else
 		{
 			/*
-			 * Before starting the actual decoding loop, pg_waldump tries to
-			 * locate the first valid record from the user-specified start
-			 * position, which might not be the start of a WAL record and
-			 * could fall in the middle of a record that spans multiple pages.
-			 * Consequently, the valid start position the decoder is looking
-			 * for could be far away from that initial position.
-			 *
-			 * This may involve reading across multiple pages, and this
-			 * pre-reading fetches data in multiple rounds from the archive
-			 * streamer; normally, we would throw away existing buffer
-			 * contents to fetch the next set of data, but that existing data
-			 * might be needed once the main loop starts. Because previously
-			 * read data cannot be re-read by the archive streamer, we delay
-			 * resetting the buffer until the main decoding loop is entered.
-			 *
-			 * Once pg_waldump has entered the main loop, it may re-read the
-			 * currently active page, but never an older one; therefore, any
-			 * fully consumed WAL data preceding the current page can then be
-			 * safely discarded.
-			 */
-			if (privateInfo->decoding_started)
-			{
-				resetStringInfo(entry->buf);
-
-				/*
-				 * Push back the partial page data for the current page to the
-				 * buffer, ensuring a full page remains available for
-				 * re-reading if requested.
-				 */
-				if (p > readBuff)
-				{
-					Assert((count - nbytes) > 0);
-					appendBinaryStringInfo(entry->buf, readBuff, count - nbytes);
-				}
-			}
-
-			/*
-			 * Now, fetch more data.  Raise an error if the archive streamer
-			 * has moved past our segment (meaning the WAL file in the archive
-			 * is shorter than expected) or if reading the archive reached
-			 * EOF.
+			 * We evidently need to fetch more data.  Raise an error if the
+			 * archive streamer has moved past our segment (meaning the WAL
+			 * file in the archive is shorter than expected) or if reading the
+			 * archive reached EOF.
 			 */
 			if (privateInfo->cur_file != entry)
 				pg_fatal("WAL segment \"%s\" in archive \"%s\" is too short: read %lld of %lld bytes",
 						 fname, privateInfo->archive_name,
 						 (long long int) (count - nbytes),
 						 (long long int) count);
-			if (!read_archive_file(privateInfo, READ_CHUNK_SIZE))
+			if (!read_archive_file(privateInfo))
 				pg_fatal("unexpected end of archive \"%s\" while reading \"%s\": read %lld of %lld bytes",
 						 privateInfo->archive_name, fname,
 						 (long long int) (count - nbytes),
 						 (long long int) count);
+
+			/*
+			 * Loading more data may have moved hash table entries, so we must
+			 * re-look-up the one we are reading from.
+			 */
+			entry = ArchivedWAL_lookup(privateInfo->archive_wal_htab, fname);
+			/* ... it had better still be there */
+			Assert(entry != NULL);
 		}
 	}
 
@@ -433,6 +407,7 @@ void
 free_archive_wal_entry(const char *fname, XLogDumpPrivate *privateInfo)
 {
 	ArchivedWALFile *entry;
+	const char *oldfname;
 
 	entry = ArchivedWAL_lookup(privateInfo->archive_wal_htab, fname);
 
@@ -458,7 +433,23 @@ free_archive_wal_entry(const char *fname, XLogDumpPrivate *privateInfo)
 	if (privateInfo->cur_file == entry)
 		privateInfo->cur_file = NULL;
 
+	/*
+	 * ArchivedWAL_delete_item may cause other hash table entries to move.
+	 * Therefore, if cur_file isn't NULL now, we have to be prepared to look
+	 * that entry up again after the deletion.  Fortunately, the entry's fname
+	 * string won't move.
+	 */
+	oldfname = privateInfo->cur_file ? privateInfo->cur_file->fname : NULL;
+
 	ArchivedWAL_delete_item(privateInfo->archive_wal_htab, entry);
+
+	if (oldfname)
+	{
+		privateInfo->cur_file = ArchivedWAL_lookup(privateInfo->archive_wal_htab,
+												   oldfname);
+		/* ... it had better still be there */
+		Assert(privateInfo->cur_file != NULL);
+	}
 }
 
 /*
@@ -523,7 +514,7 @@ get_archive_wal_entry(const char *fname, XLogDumpPrivate *privateInfo)
 		/*
 		 * Read more data.  If we reach EOF, the desired file is not present.
 		 */
-		if (!read_archive_file(privateInfo, READ_CHUNK_SIZE))
+		if (!read_archive_file(privateInfo))
 			pg_fatal("could not find WAL \"%s\" in archive \"%s\"",
 					 fname, privateInfo->archive_name);
 	}
@@ -532,10 +523,6 @@ get_archive_wal_entry(const char *fname, XLogDumpPrivate *privateInfo)
 /*
  * Reads a chunk from the archive file and passes it through the streamer
  * pipeline for decompression (if needed) and tar member extraction.
- *
- * count is the maximum amount to try to read this time.  Note that it's
- * measured in raw file bytes, and may have little to do with how much
- * comes out of decompression/extraction.
  *
  * Returns true if successful, false if there is no more data.
  *
@@ -548,19 +535,17 @@ get_archive_wal_entry(const char *fname, XLogDumpPrivate *privateInfo)
  * within the same call.
  */
 static bool
-read_archive_file(XLogDumpPrivate *privateInfo, Size count)
+read_archive_file(XLogDumpPrivate *privateInfo)
 {
 	int			rc;
-
-	/* The read request must not exceed the allocated buffer size. */
-	Assert(privateInfo->archive_read_buf_size >= count);
 
 	/* Fail if we already reached EOF in a prior call. */
 	if (privateInfo->archive_fd_eof)
 		return false;
 
 	/* Try to read some more data. */
-	rc = read(privateInfo->archive_fd, privateInfo->archive_read_buf, count);
+	rc = read(privateInfo->archive_fd, privateInfo->archive_read_buf,
+			  privateInfo->archive_read_buf_size);
 	if (rc < 0)
 		pg_fatal("could not read file \"%s\": %m",
 				 privateInfo->archive_name);
@@ -617,22 +602,9 @@ setup_tmpwal_dir(const char *waldir)
 }
 
 /*
- * Remove temporary directory at exit, if any.
- */
-static void
-cleanup_tmpwal_dir_atexit(void)
-{
-	Assert(TmpWalSegDir != NULL);
-
-	rmtree(TmpWalSegDir, true);
-
-	TmpWalSegDir = NULL;
-}
-
-/*
  * Open a file in the temporary spill directory for writing an out-of-order
- * WAL segment, creating the directory and registering the cleanup callback
- * if not already done.  Returns the open file handle.
+ * WAL segment, creating the directory if not already done.
+ * Returns the open file handle.
  */
 static FILE *
 prepare_tmp_write(const char *fname, XLogDumpPrivate *privateInfo)
@@ -640,15 +612,9 @@ prepare_tmp_write(const char *fname, XLogDumpPrivate *privateInfo)
 	char		fpath[MAXPGPATH];
 	FILE	   *file;
 
-	/*
-	 * Setup temporary directory to store WAL segments and set up an exit
-	 * callback to remove it upon completion if not already.
-	 */
+	/* Setup temporary directory to store WAL segments, if we didn't already */
 	if (unlikely(TmpWalSegDir == NULL))
-	{
 		setup_tmpwal_dir(privateInfo->archive_dir);
-		atexit(cleanup_tmpwal_dir_atexit);
-	}
 
 	snprintf(fpath, MAXPGPATH, "%s/%s", TmpWalSegDir, fname);
 
@@ -729,6 +695,9 @@ astreamer_waldump_content(astreamer *streamer, astreamer_member *member,
 				ArchivedWALFile *entry;
 				bool		found;
 
+				/* Shouldn't see MEMBER_HEADER in the middle of a file */
+				Assert(privateInfo->cur_file == NULL);
+
 				pg_log_debug("reading \"%s\"", member->pathname);
 
 				if (!member_is_wal_file(mystreamer, member, &fname))
@@ -757,6 +726,13 @@ astreamer_waldump_content(astreamer *streamer, astreamer_member *member,
 					}
 				}
 
+				/*
+				 * Note: ArchivedWAL_insert may cause existing hash table
+				 * entries to move.  While cur_file is known to be NULL right
+				 * now, read_archive_wal_page may have a live hash entry
+				 * pointer, which it needs to take care to update after
+				 * read_archive_file completes.
+				 */
 				entry = ArchivedWAL_insert(privateInfo->archive_wal_htab,
 										   fname, &found);
 
@@ -876,7 +852,7 @@ member_is_wal_file(astreamer_waldump *mystreamer, astreamer_member *member,
 static uint32
 hash_string_pointer(const char *s)
 {
-	unsigned char *ss = (unsigned char *) s;
+	const unsigned char *ss = (const unsigned char *) s;
 
 	return hash_bytes(ss, strlen(s));
 }

@@ -34,53 +34,6 @@
 #include "parser/parsetree.h"
 #include "utils/lsyscache.h"
 
-#ifdef USE_ASSERT_CHECKING
-
-/*
- * When assertions are enabled, we try generating relation identifiers during
- * planning, saving them in a hash table, and then cross-checking them against
- * the ones generated after planning is complete.
- */
-typedef struct pgpa_ri_checker_key
-{
-	char	   *plan_name;
-	Index		rti;
-} pgpa_ri_checker_key;
-
-typedef struct pgpa_ri_checker
-{
-	pgpa_ri_checker_key key;
-	uint32		status;
-	const char *rid_string;
-} pgpa_ri_checker;
-
-static uint32 pgpa_ri_checker_hash_key(pgpa_ri_checker_key key);
-
-static inline bool
-pgpa_ri_checker_compare_key(pgpa_ri_checker_key a, pgpa_ri_checker_key b)
-{
-	if (a.rti != b.rti)
-		return false;
-	if (a.plan_name == NULL)
-		return (b.plan_name == NULL);
-	if (b.plan_name == NULL)
-		return false;
-	return strcmp(a.plan_name, b.plan_name) == 0;
-}
-
-#define SH_PREFIX			pgpa_ri_check
-#define SH_ELEMENT_TYPE		pgpa_ri_checker
-#define SH_KEY_TYPE			pgpa_ri_checker_key
-#define SH_KEY				key
-#define SH_HASH_KEY(tb, key)	pgpa_ri_checker_hash_key(key)
-#define	SH_EQUAL(tb, a, b)	pgpa_ri_checker_compare_key(a, b)
-#define SH_SCOPE			static inline
-#define SH_DECLARE
-#define SH_DEFINE
-#include "lib/simplehash.h"
-
-#endif
-
 typedef enum pgpa_jo_outcome
 {
 	PGPA_JO_PERMITTED,			/* permit this join order */
@@ -94,11 +47,8 @@ typedef struct pgpa_planner_state
 	bool		generate_advice_feedback;
 	bool		generate_advice_string;
 	pgpa_trove *trove;
-	List	   *sj_unique_rels;
-
-#ifdef USE_ASSERT_CHECKING
-	pgpa_ri_check_hash *ri_check_hash;
-#endif
+	List	   *proots;
+	pgpa_planner_info *last_proot;
 } pgpa_planner_state;
 
 typedef struct pgpa_join_state
@@ -211,11 +161,16 @@ static List *pgpa_planner_append_feedback(List *list, pgpa_trove *trove,
 										  pgpa_plan_walker_context *walker);
 static void pgpa_planner_feedback_warning(List *feedback);
 
-static inline void pgpa_ri_checker_save(pgpa_planner_state *pps,
-										PlannerInfo *root,
-										RelOptInfo *rel);
-static void pgpa_ri_checker_validate(pgpa_planner_state *pps,
-									 PlannedStmt *pstmt);
+static pgpa_planner_info *pgpa_planner_get_proot(pgpa_planner_state *pps,
+												 PlannerInfo *root);
+
+static inline void pgpa_compute_rt_identifier(pgpa_planner_info *proot,
+											  PlannerInfo *root,
+											  RelOptInfo *rel);
+static void pgpa_compute_rt_offsets(pgpa_planner_state *pps,
+									PlannedStmt *pstmt);
+static void pgpa_validate_rt_identifiers(pgpa_planner_state *pps,
+										 PlannedStmt *pstmt);
 
 static char *pgpa_bms_to_cstring(Bitmapset *bms);
 static const char *pgpa_jointype_to_cstring(JoinType jointype);
@@ -311,20 +266,10 @@ pgpa_planner_setup(PlannerGlobal *glob, Query *parse, const char *query_string,
 		}
 	}
 
-#ifdef USE_ASSERT_CHECKING
-
-	/*
-	 * If asserts are enabled, always build a private state object for
-	 * cross-checks.
-	 */
-	needs_pps = true;
-#endif
-
 	/*
 	 * We only create and initialize a private state object if it's needed for
 	 * some purpose. That could be (1) recording that we will need to generate
-	 * an advice string, (2) storing a trove of supplied advice, or (3)
-	 * facilitating debugging cross-checks when asserts are enabled.
+	 * an advice string or (2) storing a trove of supplied advice.
 	 *
 	 * Currently, the active memory context should be one that will last for
 	 * the entire duration of query planning, but if GEQO is in use, it's
@@ -340,10 +285,6 @@ pgpa_planner_setup(PlannerGlobal *glob, Query *parse, const char *query_string,
 		pps->generate_advice_feedback = generate_advice_feedback;
 		pps->generate_advice_string = generate_advice_string;
 		pps->trove = trove;
-#ifdef USE_ASSERT_CHECKING
-		pps->ri_check_hash =
-			pgpa_ri_check_create(CurrentMemoryContext, 1024, NULL);
-#endif
 		SetPlannerGlobalExtensionState(glob, planner_extension_id, pps);
 	}
 
@@ -372,9 +313,16 @@ pgpa_planner_shutdown(PlannerGlobal *glob, Query *parse,
 	pps = GetPlannerGlobalExtensionState(glob, planner_extension_id);
 	if (pps != NULL)
 	{
+		/* Set up some local variables. */
 		trove = pps->trove;
 		generate_advice_feedback = pps->generate_advice_feedback;
 		generate_advice_string = pps->generate_advice_string;
+
+		/* Compute range table offsets. */
+		pgpa_compute_rt_offsets(pps, pstmt);
+
+		/* Cross-check range table identifiers. */
+		pgpa_validate_rt_identifiers(pps, pstmt);
 	}
 
 	/*
@@ -384,7 +332,7 @@ pgpa_planner_shutdown(PlannerGlobal *glob, Query *parse,
 	 */
 	if (generate_advice_string || generate_advice_feedback)
 	{
-		pgpa_plan_walker(&walker, pstmt, pps->sj_unique_rels);
+		pgpa_plan_walker(&walker, pstmt, pps->proots);
 		rt_identifiers = pgpa_create_identifiers_for_planned_stmt(pstmt);
 	}
 
@@ -445,13 +393,6 @@ pgpa_planner_shutdown(PlannerGlobal *glob, Query *parse,
 			lappend(pstmt->extension_state,
 					makeDefElem("pg_plan_advice", (Node *) pgpa_items, -1));
 
-	/*
-	 * If assertions are enabled, cross-check the generated range table
-	 * identifiers.
-	 */
-	if (pps != NULL)
-		pgpa_ri_checker_validate(pps, pstmt);
-
 	/* Pass call to previous hook. */
 	if (prev_planner_shutdown)
 		(*prev_planner_shutdown) (glob, parse, query_string, pstmt);
@@ -459,35 +400,38 @@ pgpa_planner_shutdown(PlannerGlobal *glob, Query *parse,
 
 /*
  * Hook function for build_simple_rel().
- *
- * We can apply scan advice at this point, and we also use this as an
- * opportunity to do range-table identifier cross-checking in assert-enabled
- * builds.
  */
 static void
 pgpa_build_simple_rel(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 {
 	pgpa_planner_state *pps;
+	pgpa_planner_info *proot = NULL;
 
 	/* Fetch our private state, set up by pgpa_planner_setup(). */
 	pps = GetPlannerGlobalExtensionState(root->glob, planner_extension_id);
 
-	/* Save details needed for range table identifier cross-checking. */
+	/*
+	 * Look up the pgpa_planner_info for this subquery, and make sure we've
+	 * saved a range table identifier.
+	 */
 	if (pps != NULL)
-		pgpa_ri_checker_save(pps, root, rel);
+	{
+		proot = pgpa_planner_get_proot(pps, root);
+		pgpa_compute_rt_identifier(proot, root, rel);
+	}
 
 	/* If query advice was provided, search for relevant entries. */
 	if (pps != NULL && pps->trove != NULL)
 	{
-		pgpa_identifier rid;
+		pgpa_identifier *rid;
 		pgpa_trove_result tresult_scan;
 		pgpa_trove_result tresult_rel;
 
 		/* Search for scan advice and general rel advice. */
-		pgpa_compute_identifier_by_rti(root, rel->relid, &rid);
-		pgpa_trove_lookup(pps->trove, PGPA_TROVE_LOOKUP_SCAN, 1, &rid,
+		rid = &proot->rid_array[rel->relid - 1];
+		pgpa_trove_lookup(pps->trove, PGPA_TROVE_LOOKUP_SCAN, 1, rid,
 						  &tresult_scan);
-		pgpa_trove_lookup(pps->trove, PGPA_TROVE_LOOKUP_REL, 1, &rid,
+		pgpa_trove_lookup(pps->trove, PGPA_TROVE_LOOKUP_REL, 1, rid,
 						  &tresult_rel);
 
 		/* If relevant entries were found, apply them. */
@@ -592,8 +536,7 @@ pgpa_join_path_setup(PlannerInfo *root, RelOptInfo *joinrel,
 
 	/*
 	 * If we're considering implementing a semijoin by making one side unique,
-	 * make a note of it in the pgpa_planner_state. See comments for
-	 * pgpa_sj_unique_rel for why we do this.
+	 * make a note of it in the pgpa_planner_state.
 	 */
 	if (jointype == JOIN_UNIQUE_OUTER || jointype == JOIN_UNIQUE_INNER)
 	{
@@ -605,36 +548,24 @@ pgpa_join_path_setup(PlannerInfo *root, RelOptInfo *joinrel,
 		if (pps != NULL &&
 			(pps->generate_advice_string || pps->generate_advice_feedback))
 		{
-			bool		found = false;
+			pgpa_planner_info *proot;
+			MemoryContext oldcontext;
 
-			/* Avoid adding duplicates. */
-			foreach_ptr(pgpa_sj_unique_rel, ur, pps->sj_unique_rels)
-			{
-				/*
-				 * We should always use the same pointer for the same plan
-				 * name, so we need not use strcmp() here.
-				 */
-				if (root->plan_name == ur->plan_name &&
-					bms_equal(uniquerel->relids, ur->relids))
-				{
-					found = true;
-					break;
-				}
-			}
-
-			/* If not a duplicate, append to the list. */
-			if (!found)
-			{
-				pgpa_sj_unique_rel *ur;
-				MemoryContext oldcontext;
-
-				oldcontext = MemoryContextSwitchTo(pps->mcxt);
-				ur = palloc_object(pgpa_sj_unique_rel);
-				ur->plan_name = root->plan_name;
-				ur->relids = bms_copy(uniquerel->relids);
-				pps->sj_unique_rels = lappend(pps->sj_unique_rels, ur);
-				MemoryContextSwitchTo(oldcontext);
-			}
+			/*
+			 * Get or create a pgpa_planner_info object, and then add the
+			 * relids from the unique side to proot->sj_unique_rels.
+			 *
+			 * We must be careful here to use a sufficiently long-lived
+			 * context, since we might have been called by GEQO. We want all
+			 * the data we store here (including the proot, if we create it)
+			 * to last for as long as the pgpa_planner_state.
+			 */
+			oldcontext = MemoryContextSwitchTo(pps->mcxt);
+			proot = pgpa_planner_get_proot(pps, root);
+			if (!list_member(proot->sj_unique_rels, uniquerel->relids))
+				proot->sj_unique_rels = lappend(proot->sj_unique_rels,
+												bms_copy(uniquerel->relids));
+			MemoryContextSwitchTo(oldcontext);
 		}
 	}
 
@@ -1690,6 +1621,8 @@ pgpa_planner_apply_scan_advice(RelOptInfo *rel,
 							   pgpa_trove_entry *rel_entries,
 							   Bitmapset *rel_indexes)
 {
+	const uint64 all_scan_mask = PGS_SCAN_ANY | PGS_APPEND |
+		PGS_MERGE_APPEND | PGS_CONSIDER_INDEXONLY;
 	bool		gather_conflict = false;
 	Bitmapset  *gather_partial_match = NULL;
 	Bitmapset  *gather_full_match = NULL;
@@ -1700,16 +1633,18 @@ pgpa_planner_apply_scan_advice(RelOptInfo *rel,
 	Bitmapset  *scan_type_indexes = NULL;
 	Bitmapset  *scan_type_rel_indexes = NULL;
 	uint64		gather_mask = 0;
-	uint64		scan_type = 0;
+	uint64		scan_type = all_scan_mask;	/* sentinel: no advice yet */
 
 	/* Scrutinize available scan advice. */
 	while ((i = bms_next_member(scan_indexes, i)) >= 0)
 	{
 		pgpa_trove_entry *my_entry = &scan_entries[i];
-		uint64		my_scan_type = 0;
+		uint64		my_scan_type = all_scan_mask;
 
 		/* Translate our advice tags to a scan strategy advice value. */
-		if (my_entry->tag == PGPA_TAG_BITMAP_HEAP_SCAN)
+		if (my_entry->tag == PGPA_TAG_DO_NOT_SCAN)
+			my_scan_type = 0;
+		else if (my_entry->tag == PGPA_TAG_BITMAP_HEAP_SCAN)
 		{
 			/*
 			 * Currently, PGS_CONSIDER_INDEXONLY can suppress Bitmap Heap
@@ -1743,9 +1678,9 @@ pgpa_planner_apply_scan_advice(RelOptInfo *rel,
 		 * INDEX_SCAN(a b.c) as non-conflicting if it happens that the only
 		 * index named c is in schema b, but it doesn't seem worth the code.
 		 */
-		if (my_scan_type != 0)
+		if (my_scan_type != all_scan_mask)
 		{
-			if (scan_type != 0 && scan_type != my_scan_type)
+			if (scan_type != all_scan_mask && scan_type != my_scan_type)
 				scan_type_conflict = true;
 			if (!scan_type_conflict && scan_entry != NULL &&
 				my_entry->target->itarget != NULL &&
@@ -1780,7 +1715,7 @@ pgpa_planner_apply_scan_advice(RelOptInfo *rel,
 			{
 				const uint64 my_scan_type = PGS_APPEND | PGS_MERGE_APPEND;
 
-				if (scan_type != 0 && scan_type != my_scan_type)
+				if (scan_type != all_scan_mask && scan_type != my_scan_type)
 					scan_type_conflict = true;
 				scan_entry = my_entry;
 				scan_type = my_scan_type;
@@ -1859,7 +1794,7 @@ pgpa_planner_apply_scan_advice(RelOptInfo *rel,
 		if (matched_index == NULL)
 		{
 			/* Don't force the scan type if the index doesn't exist. */
-			scan_type = 0;
+			scan_type = all_scan_mask;
 
 			/* Mark advice as inapplicable. */
 			pgpa_trove_set_flags(scan_entries, scan_type_indexes,
@@ -1903,14 +1838,8 @@ pgpa_planner_apply_scan_advice(RelOptInfo *rel,
 	 * Only clear bits here, so that we still respect the enable_* GUCs. Do
 	 * nothing in cases where the advice on a single topic conflicts.
 	 */
-	if (scan_type != 0 && !scan_type_conflict)
-	{
-		uint64		all_scan_mask;
-
-		all_scan_mask = PGS_SCAN_ANY | PGS_APPEND | PGS_MERGE_APPEND |
-			PGS_CONSIDER_INDEXONLY;
+	if (scan_type != all_scan_mask && !scan_type_conflict)
 		rel->pgs_mask &= ~(all_scan_mask & ~scan_type);
-	}
 	if (gather_mask != 0 && !gather_conflict)
 	{
 		uint64		all_gather_mask;
@@ -2017,89 +1946,147 @@ pgpa_planner_feedback_warning(List *feedback)
 				errdetail("%s", detailbuf.data));
 }
 
-#ifdef USE_ASSERT_CHECKING
-
 /*
- * Fast hash function for a key consisting of an RTI and plan name.
+ * Get or create the pgpa_planner_info for the given PlannerInfo.
  */
-static uint32
-pgpa_ri_checker_hash_key(pgpa_ri_checker_key key)
+static pgpa_planner_info *
+pgpa_planner_get_proot(pgpa_planner_state *pps, PlannerInfo *root)
 {
-	fasthash_state hs;
-	int			sp_len;
+	pgpa_planner_info *new_proot;
 
-	fasthash_init(&hs, 0);
-
-	hs.accum = key.rti;
-	fasthash_combine(&hs);
-
-	/* plan_name can be NULL */
-	if (key.plan_name == NULL)
-		sp_len = 0;
-	else
-		sp_len = fasthash_accum_cstring(&hs, key.plan_name);
-
-	/* hashfn_unstable.h recommends using string length as tweak */
-	return fasthash_final32(&hs, sp_len);
-}
-
-#endif
-
-/*
- * Save the range table identifier for one relation for future cross-checking.
- */
-static void
-pgpa_ri_checker_save(pgpa_planner_state *pps, PlannerInfo *root,
-					 RelOptInfo *rel)
-{
-#ifdef USE_ASSERT_CHECKING
-	pgpa_ri_checker_key key;
-	pgpa_ri_checker *check;
-	pgpa_identifier rid;
-	const char *rid_string;
-	bool		found;
-
-	key.rti = bms_singleton_member(rel->relids);
-	key.plan_name = root->plan_name;
-	pgpa_compute_identifier_by_rti(root, key.rti, &rid);
-	rid_string = pgpa_identifier_string(&rid);
-	check = pgpa_ri_check_insert(pps->ri_check_hash, key, &found);
-	Assert(!found || strcmp(check->rid_string, rid_string) == 0);
-	check->rid_string = rid_string;
-#endif
-}
-
-/*
- * Validate that the range table identifiers we were able to generate during
- * planning match the ones we generated from the final plan.
- */
-static void
-pgpa_ri_checker_validate(pgpa_planner_state *pps, PlannedStmt *pstmt)
-{
-#ifdef USE_ASSERT_CHECKING
-	pgpa_identifier *rt_identifiers;
-	pgpa_ri_check_iterator it;
-	pgpa_ri_checker *check;
-
-	/* Create identifiers from the planned statement. */
-	rt_identifiers = pgpa_create_identifiers_for_planned_stmt(pstmt);
-
-	/* Iterate over identifiers created during planning, so we can compare. */
-	pgpa_ri_check_start_iterate(pps->ri_check_hash, &it);
-	while ((check = pgpa_ri_check_iterate(pps->ri_check_hash, &it)) != NULL)
+	/*
+	 * If pps->last_proot isn't populated, there are no pgpa_planner_info
+	 * objects yet, so we can drop through and create a new one. Otherwise,
+	 * search for an object with a matching name, and drop through only if
+	 * none is found.
+	 */
+	if (pps->last_proot != NULL)
 	{
-		int			rtoffset = 0;
-		const char *rid_string;
-		Index		flat_rti;
+		if (root->plan_name == NULL)
+		{
+			if (pps->last_proot->plan_name == NULL)
+				return pps->last_proot;
+
+			foreach_ptr(pgpa_planner_info, proot, pps->proots)
+			{
+				if (proot->plan_name == NULL)
+				{
+					pps->last_proot = proot;
+					return proot;
+				}
+			}
+		}
+		else
+		{
+			if (pps->last_proot->plan_name != NULL &&
+				strcmp(pps->last_proot->plan_name, root->plan_name) == 0)
+				return pps->last_proot;
+
+			foreach_ptr(pgpa_planner_info, proot, pps->proots)
+			{
+				if (proot->plan_name != NULL &&
+					strcmp(proot->plan_name, root->plan_name) == 0)
+				{
+					pps->last_proot = proot;
+					return proot;
+				}
+			}
+		}
+	}
+
+	/* Create new object. */
+	new_proot = palloc0_object(pgpa_planner_info);
+
+	/* Set plan name and alternative plan name. */
+	new_proot->plan_name = root->plan_name;
+	new_proot->alternative_plan_name = root->alternative_plan_name;
+
+	/*
+	 * If the newly-created proot shares an alternative_plan_name with one or
+	 * more others, all should have the is_alternative_plan flag set.
+	 */
+	foreach_ptr(pgpa_planner_info, other_proot, pps->proots)
+	{
+		if (strings_equal_or_both_null(new_proot->alternative_plan_name,
+									   other_proot->alternative_plan_name))
+		{
+			new_proot->is_alternative_plan = true;
+			other_proot->is_alternative_plan = true;
+		}
+	}
+
+	/*
+	 * Outermost query level always has rtoffset 0; other rtoffset values are
+	 * computed later.
+	 */
+	if (root->plan_name == NULL)
+	{
+		new_proot->has_rtoffset = true;
+		new_proot->rtoffset = 0;
+	}
+
+	/* Add to list and make it most recently used. */
+	pps->proots = lappend(pps->proots, new_proot);
+	pps->last_proot = new_proot;
+
+	return new_proot;
+}
+
+/*
+ * Compute the range table identifier for one relation and save it for future
+ * use.
+ */
+static void
+pgpa_compute_rt_identifier(pgpa_planner_info *proot, PlannerInfo *root,
+						   RelOptInfo *rel)
+{
+	pgpa_identifier *rid;
+
+	/* Allocate or extend the proot's rid_array as necessary. */
+	if (proot->rid_array_size < rel->relid)
+	{
+		int			new_size = pg_nextpower2_32(Max(rel->relid, 8));
+
+		if (proot->rid_array_size == 0)
+			proot->rid_array = palloc0_array(pgpa_identifier, new_size);
+		else
+			proot->rid_array = repalloc0_array(proot->rid_array,
+											   pgpa_identifier,
+											   proot->rid_array_size,
+											   new_size);
+		proot->rid_array_size = new_size;
+	}
+
+	/* Save relation identifier details for this RTI if not already done. */
+	rid = &proot->rid_array[rel->relid - 1];
+	if (rid->alias_name == NULL)
+		pgpa_compute_identifier_by_rti(root, rel->relid, rid);
+}
+
+/*
+ * Compute the range table offset for each pgpa_planner_info for which it
+ * is possible to meaningfully do so.
+ */
+static void
+pgpa_compute_rt_offsets(pgpa_planner_state *pps, PlannedStmt *pstmt)
+{
+	foreach_ptr(pgpa_planner_info, proot, pps->proots)
+	{
+		/* For the top query level, we've previously set rtoffset 0. */
+		if (proot->plan_name == NULL)
+		{
+			Assert(proot->has_rtoffset);
+			continue;
+		}
 
 		/*
-		 * If there's no plan name associated with this entry, then the
-		 * rtoffset is 0. Otherwise, we can search the SubPlanRTInfo list to
-		 * find the rtoffset.
+		 * It's not guaranteed that every plan name we saw during planning has
+		 * a SubPlanInfo, but any that do not certainly don't appear in the
+		 * final range table.
 		 */
-		if (check->key.plan_name != NULL)
+		foreach_node(SubPlanRTInfo, rtinfo, pstmt->subrtinfos)
 		{
-			foreach_node(SubPlanRTInfo, rtinfo, pstmt->subrtinfos)
+			if (strcmp(proot->plan_name, rtinfo->plan_name) == 0)
 			{
 				/*
 				 * If rtinfo->dummy is set, then the subquery's range table
@@ -2108,48 +2095,66 @@ pgpa_ri_checker_validate(pgpa_planner_state *pps, PlannedStmt *pstmt)
 				 * RTE_SUBQUERY entries that were once RTE_RELATION entries
 				 * will be copied, as per add_rtes_to_flat_rtable. Therefore,
 				 * there's no fixed rtoffset that we can apply to the RTIs
-				 * used during planning to locate the corresponding relations
-				 * in the final rtable.
-				 *
-				 * With more complex logic, we could work around that problem
-				 * by remembering the whole contents of the subquery's rtable
-				 * during planning, determining which of those would have been
-				 * copied to the final rtable, and matching them up. But it
-				 * doesn't seem like a worthwhile endeavor for right now,
-				 * because RTIs from such subqueries won't appear in the plan
-				 * tree itself, just in the range table. Hence, we can neither
-				 * generate nor accept advice for them.
+				 * used during planning to locate the corresponding relations.
 				 */
-				if (strcmp(check->key.plan_name, rtinfo->plan_name) == 0
-					&& !rtinfo->dummy)
+				if (rtinfo->dummy)
 				{
-					rtoffset = rtinfo->rtoffset;
-					Assert(rtoffset > 0);
+					/*
+					 * It will not be possible to make any effective use of
+					 * the sj_unique_rels list in this case, and it also won't
+					 * be important to do so. So just throw the list away to
+					 * avoid confusing pgpa_plan_walker.
+					 */
+					proot->sj_unique_rels = NIL;
 					break;
 				}
+				Assert(!proot->has_rtoffset);
+				proot->has_rtoffset = true;
+				proot->rtoffset = rtinfo->rtoffset;
+				break;
 			}
-
-			/*
-			 * It's not an error if we don't find the plan name: that just
-			 * means that we planned a subplan by this name but it ended up
-			 * being a dummy subplan and so wasn't included in the final plan
-			 * tree.
-			 */
-			if (rtoffset == 0)
-				continue;
 		}
+	}
+}
 
-		/*
-		 * check->key.rti is the RTI that we saw prior to range-table
-		 * flattening, so we must add the appropriate RT offset to get the
-		 * final RTI.
-		 */
-		flat_rti = check->key.rti + rtoffset;
-		Assert(flat_rti <= list_length(pstmt->rtable));
+/*
+ * Validate that the range table identifiers we were able to generate during
+ * planning match the ones we generated from the final plan.
+ */
+static void
+pgpa_validate_rt_identifiers(pgpa_planner_state *pps, PlannedStmt *pstmt)
+{
+#ifdef USE_ASSERT_CHECKING
+	pgpa_identifier *rt_identifiers;
+	Index		rtable_length = list_length(pstmt->rtable);
 
-		/* Assert that the string we compute now matches the previous one. */
-		rid_string = pgpa_identifier_string(&rt_identifiers[flat_rti - 1]);
-		Assert(strcmp(rid_string, check->rid_string) == 0);
+	/* Create identifiers from the planned statement. */
+	rt_identifiers = pgpa_create_identifiers_for_planned_stmt(pstmt);
+
+	/* Iterate over identifiers created during planning, so we can compare. */
+	foreach_ptr(pgpa_planner_info, proot, pps->proots)
+	{
+		if (!proot->has_rtoffset)
+			continue;
+
+		for (int rti = 1; rti <= proot->rid_array_size; ++rti)
+		{
+			Index		flat_rti = proot->rtoffset + rti;
+			pgpa_identifier *rid1 = &proot->rid_array[rti - 1];
+			pgpa_identifier *rid2;
+
+			if (rid1->alias_name == NULL)
+				continue;
+
+			Assert(flat_rti <= rtable_length);
+			rid2 = &rt_identifiers[flat_rti - 1];
+			Assert(strcmp(rid1->alias_name, rid2->alias_name) == 0);
+			Assert(rid1->occurrence == rid2->occurrence);
+			Assert(strings_equal_or_both_null(rid1->partnsp, rid2->partnsp));
+			Assert(strings_equal_or_both_null(rid1->partrel, rid2->partrel));
+			Assert(strings_equal_or_both_null(rid1->plan_name,
+											  rid2->plan_name));
+		}
 	}
 #endif
 }

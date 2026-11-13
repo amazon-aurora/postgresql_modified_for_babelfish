@@ -99,11 +99,6 @@ typedef struct
 #ifdef USE_INJECTION_POINTS
 	struct InjectionPointsCtl *ActiveInjectionPoints;
 #endif
-	int			NamedLWLockTrancheRequests;
-	NamedLWLockTrancheRequest *NamedLWLockTrancheRequestArray;
-	char	  **LWLockTrancheNames;
-	int		   *LWLockCounter;
-	LWLockPadded *MainLWLockArray;
 	PROC_HDR   *ProcGlobal;
 	PGPROC	   *AuxiliaryProcs;
 	PGPROC	   *PreparedXactProcs;
@@ -729,11 +724,6 @@ save_backend_variables(BackendParameters *param,
 	param->ActiveInjectionPoints = ActiveInjectionPoints;
 #endif
 
-	param->NamedLWLockTrancheRequests = NamedLWLockTrancheRequests;
-	param->NamedLWLockTrancheRequestArray = NamedLWLockTrancheRequestArray;
-	param->LWLockTrancheNames = LWLockTrancheNames;
-	param->LWLockCounter = LWLockCounter;
-	param->MainLWLockArray = MainLWLockArray;
 	param->ProcGlobal = ProcGlobal;
 	param->AuxiliaryProcs = AuxiliaryProcs;
 	param->PreparedXactProcs = PreparedXactProcs;
@@ -988,11 +978,6 @@ restore_backend_variables(BackendParameters *param)
 	ActiveInjectionPoints = param->ActiveInjectionPoints;
 #endif
 
-	NamedLWLockTrancheRequests = param->NamedLWLockTrancheRequests;
-	NamedLWLockTrancheRequestArray = param->NamedLWLockTrancheRequestArray;
-	LWLockTrancheNames = param->LWLockTrancheNames;
-	LWLockCounter = param->LWLockCounter;
-	MainLWLockArray = param->MainLWLockArray;
 	ProcGlobal = param->ProcGlobal;
 	AuxiliaryProcs = param->AuxiliaryProcs;
 	PreparedXactProcs = param->PreparedXactProcs;

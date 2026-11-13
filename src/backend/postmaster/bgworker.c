@@ -121,10 +121,6 @@ static const struct
 
 {
 	{
-		.fn_name = "ParallelWorkerMain",
-		.fn_addr = ParallelWorkerMain
-	},
-	{
 		.fn_name = "ApplyLauncherMain",
 		.fn_addr = ApplyLauncherMain
 	},
@@ -137,13 +133,18 @@ static const struct
 		.fn_addr = ParallelApplyWorkerMain
 	},
 	{
-		.fn_name = "TableSyncWorkerMain",
-		.fn_addr = TableSyncWorkerMain
+		.fn_name = "ParallelWorkerMain",
+		.fn_addr = ParallelWorkerMain
 	},
 	{
 		.fn_name = "SequenceSyncWorkerMain",
 		.fn_addr = SequenceSyncWorkerMain
-	}
+	},
+	{
+		.fn_name = "TableSyncWorkerMain",
+		.fn_addr = TableSyncWorkerMain
+	},
+
 };
 
 /* Private functions. */
@@ -860,7 +861,7 @@ void
 BackgroundWorkerInitializeConnection(const char *dbname, const char *username, uint32 flags)
 {
 	BackgroundWorker *worker = MyBgworkerEntry;
-	bits32		init_flags = 0; /* never honor session_preload_libraries */
+	uint32		init_flags = 0; /* never honor session_preload_libraries */
 
 	/* ignore datallowconn and ACL_CONNECT? */
 	if (flags & BGWORKER_BYPASS_ALLOWCONN)
@@ -894,7 +895,7 @@ void
 BackgroundWorkerInitializeConnectionByOid(Oid dboid, Oid useroid, uint32 flags)
 {
 	BackgroundWorker *worker = MyBgworkerEntry;
-	bits32		init_flags = 0; /* never honor session_preload_libraries */
+	uint32		init_flags = 0; /* never honor session_preload_libraries */
 
 	/* ignore datallowconn and ACL_CONNECT? */
 	if (flags & BGWORKER_BYPASS_ALLOWCONN)

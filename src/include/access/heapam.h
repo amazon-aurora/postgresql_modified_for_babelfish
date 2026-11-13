@@ -43,6 +43,7 @@
 #define HEAP_PAGE_PRUNE_MARK_UNUSED_NOW		(1 << 0)
 #define HEAP_PAGE_PRUNE_FREEZE				(1 << 1)
 #define HEAP_PAGE_PRUNE_ALLOW_FAST_PATH		(1 << 2)
+#define HEAP_PAGE_PRUNE_SET_VM				(1 << 3)
 
 typedef struct BulkInsertStateData *BulkInsertState;
 typedef struct GlobalVisState GlobalVisState;
@@ -95,10 +96,7 @@ typedef struct HeapScanDescData
 	 */
 	ParallelBlockTableScanWorkerData *rs_parallelworkerdata;
 
-	/*
-	 * For sequential scans and bitmap heap scans. The current heap block's
-	 * corresponding page in the visibility map.
-	 */
+	/* Current heap block's corresponding page in the visibility map */
 	Buffer		rs_vmbuffer;
 
 	/* these fields only used in page-at-a-time mode and for bitmap scans */
@@ -265,7 +263,8 @@ typedef struct PruneFreezeParams
 
 	/*
 	 * Callers should provide a pinned vmbuffer corresponding to the heap
-	 * block in buffer. We will check for and repair any corruption in the VM.
+	 * block in buffer. We will check for and repair any corruption in the VM
+	 * and set the VM after pruning if the page is all-visible/all-frozen.
 	 */
 	Buffer		vmbuffer;
 
@@ -281,8 +280,7 @@ typedef struct PruneFreezeParams
 	 * HEAP_PAGE_PRUNE_MARK_UNUSED_NOW indicates that dead items can be set
 	 * LP_UNUSED during pruning.
 	 *
-	 * HEAP_PAGE_PRUNE_FREEZE indicates that we will also freeze tuples, and
-	 * will return 'all_visible', 'all_frozen' flags to the caller.
+	 * HEAP_PAGE_PRUNE_FREEZE indicates that we will also freeze tuples.
 	 */
 	int			options;
 
@@ -316,26 +314,12 @@ typedef struct PruneFreezeResult
 	int			recently_dead_tuples;
 
 	/*
-	 * set_all_visible and set_all_frozen indicate if the all-visible and
-	 * all-frozen bits in the visibility map should be set for this page after
-	 * pruning.
-	 *
-	 * vm_conflict_horizon is the newest xmin of live tuples on the page.  The
-	 * caller can use it as the conflict horizon when setting the VM bits.  It
-	 * is only valid if we froze some tuples (nfrozen > 0), and set_all_frozen
-	 * is true.
-	 *
-	 * These are only set if the HEAP_PAGE_PRUNE_FREEZE option is set.
+	 * Whether or not the page was newly set all-visible and all-frozen during
+	 * phase I of vacuuming.
 	 */
-	bool		set_all_visible;
-	bool		set_all_frozen;
-	TransactionId vm_conflict_horizon;
-
-	/*
-	 * The value of the vmbuffer's vmbits at the beginning of pruning. It is
-	 * cleared if VM corruption is found and corrected.
-	 */
-	uint8		old_vmbits;
+	bool		newly_all_visible;
+	bool		newly_all_visible_frozen;
+	bool		newly_all_frozen;
 
 	/*
 	 * Whether or not the page makes rel truncation unsafe.  This is set to
@@ -409,9 +393,9 @@ extern void FreeBulkInsertState(BulkInsertState);
 extern void ReleaseBulkInsertStatePin(BulkInsertState bistate);
 
 extern void heap_insert(Relation relation, HeapTuple tup, CommandId cid,
-						int options, BulkInsertState bistate);
+						uint32 options, BulkInsertState bistate);
 extern void heap_multi_insert(Relation relation, TupleTableSlot **slots,
-							  int ntuples, CommandId cid, int options,
+							  int ntuples, CommandId cid, uint32 options,
 							  BulkInsertState bistate);
 extern TM_Result heap_delete(Relation relation, const ItemPointerData *tid,
 							 CommandId cid, Snapshot crosscheck, bool wait,
@@ -464,7 +448,7 @@ extern TransactionId heap_index_delete_tuples(Relation rel,
 
 /* in heap/pruneheap.c */
 extern void heap_page_prune_opt(Relation relation, Buffer buffer,
-								Buffer *vmbuffer);
+								Buffer *vmbuffer, bool rel_read_only);
 extern void heap_page_prune_and_freeze(PruneFreezeParams *params,
 									   PruneFreezeResult *presult,
 									   OffsetNumber *off_loc,
@@ -488,6 +472,13 @@ extern void log_heap_prune_and_freeze(Relation relation, Buffer buffer,
 /* in heap/vacuumlazy.c */
 extern void heap_vacuum_rel(Relation rel,
 							const VacuumParams params, BufferAccessStrategy bstrategy);
+#ifdef USE_ASSERT_CHECKING
+extern bool heap_page_is_all_visible(Relation rel, Buffer buf,
+									 GlobalVisState *vistest,
+									 bool *all_frozen,
+									 TransactionId *newest_live_xid,
+									 OffsetNumber *logging_offnum);
+#endif
 
 /* in heap/heapam_visibility.c */
 extern bool HeapTupleSatisfiesVisibility(Relation relation, HeapTuple htup, Snapshot snapshot,

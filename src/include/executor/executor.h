@@ -708,6 +708,8 @@ extern void ExecCreateScanSlotFromOuterPlan(EState *estate,
 
 extern bool ExecRelationIsTargetRelation(EState *estate, Index scanrelid);
 
+extern bool ScanRelIsReadOnly(ScanState *ss);
+
 extern Relation ExecOpenScanRelation(EState *estate, Index scanrelid, int eflags);
 
 extern void ExecInitRangeTable(EState *estate, List *rangeTable, List *permInfos,
@@ -767,7 +769,7 @@ extern void ExecCloseIndices(ResultRelInfo *resultRelInfo);
 #define		EIIT_NO_DUPE_ERROR		(1<<1)
 #define		EIIT_ONLY_SUMMARIZING	(1<<2)
 extern List *ExecInsertIndexTuples(ResultRelInfo *resultRelInfo, EState *estate,
-								   bits32 options, TupleTableSlot *slot,
+								   uint32 options, TupleTableSlot *slot,
 								   List *arbiterIndexes,
 								   bool *specConflict);
 extern bool ExecCheckIndexConstraints(ResultRelInfo *resultRelInfo,

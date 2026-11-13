@@ -225,18 +225,13 @@ transformGraphElementPattern(ParseState *pstate, GraphElementPattern *gep)
 {
 	GraphTableParseState *gpstate = pstate->p_graph_table_pstate;
 
-	if (gep->kind != VERTEX_PATTERN && !IS_EDGE_PATTERN(gep->kind))
-		ereport(ERROR,
-				errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				errmsg("unsupported element pattern kind: \"%s\"", get_gep_kind_name(gep->kind)));
-
 	if (gep->quantifier)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("element pattern quantifier is not supported")));
 
 	if (gep->variable)
-		gpstate->variables = lappend(gpstate->variables, makeString(pstrdup(gep->variable)));
+		gpstate->variables = list_append_unique(gpstate->variables, makeString(pstrdup(gep->variable)));
 
 	gep->labelexpr = transformLabelExpr(gpstate, gep->labelexpr);
 
@@ -253,10 +248,53 @@ static Node *
 transformPathTerm(ParseState *pstate, List *path_term)
 {
 	List	   *result = NIL;
+	GraphElementPattern *prev_gep = NULL;
 
 	foreach_node(GraphElementPattern, gep, path_term)
+	{
+		if (gep->kind != VERTEX_PATTERN && !IS_EDGE_PATTERN(gep->kind))
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("unsupported element pattern kind: \"%s\"", get_gep_kind_name(gep->kind)),
+					 parser_errposition(pstate, gep->location)));
+
+		if (IS_EDGE_PATTERN(gep->kind))
+		{
+			if (!prev_gep)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("path pattern cannot start with an edge pattern"),
+						 parser_errposition(pstate, gep->location)));
+			else if (prev_gep->kind != VERTEX_PATTERN)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("edge pattern must be preceded by a vertex pattern"),
+						 parser_errposition(pstate, gep->location)));
+		}
+		else
+		{
+			if (prev_gep && !IS_EDGE_PATTERN(prev_gep->kind))
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("adjacent vertex patterns are not supported"),
+						 parser_errposition(pstate, gep->location)));
+		}
+
 		result = lappend(result,
 						 transformGraphElementPattern(pstate, gep));
+		prev_gep = gep;
+	}
+
+	/* Path pattern should have at least one element pattern. */
+	Assert(prev_gep);
+
+	if (IS_EDGE_PATTERN(prev_gep->kind))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("path pattern cannot end with an edge pattern"),
+				 parser_errposition(pstate, prev_gep->location)));
+	}
 
 	return (Node *) result;
 }

@@ -113,7 +113,9 @@ IndexNext(IndexScanState *node)
 								   estate->es_snapshot,
 								   node->iss_Instrument,
 								   node->iss_NumScanKeys,
-								   node->iss_NumOrderByKeys);
+								   node->iss_NumOrderByKeys,
+								   ScanRelIsReadOnly(&node->ss) ?
+								   SO_HINT_REL_READ_ONLY : SO_NONE);
 
 		node->iss_ScanDesc = scandesc;
 
@@ -209,7 +211,9 @@ IndexNextWithReorder(IndexScanState *node)
 								   estate->es_snapshot,
 								   node->iss_Instrument,
 								   node->iss_NumScanKeys,
-								   node->iss_NumOrderByKeys);
+								   node->iss_NumOrderByKeys,
+								   ScanRelIsReadOnly(&node->ss) ?
+								   SO_HINT_REL_READ_ONLY : SO_NONE);
 
 		node->iss_ScanDesc = scandesc;
 
@@ -1730,7 +1734,9 @@ ExecIndexScanInitializeDSM(IndexScanState *node,
 								 node->iss_Instrument,
 								 node->iss_NumScanKeys,
 								 node->iss_NumOrderByKeys,
-								 piscan);
+								 piscan,
+								 ScanRelIsReadOnly(&node->ss) ?
+								 SO_HINT_REL_READ_ONLY : SO_NONE);
 
 	/*
 	 * If no run-time keys to calculate or they are ready, go ahead and pass
@@ -1794,7 +1800,9 @@ ExecIndexScanInitializeWorker(IndexScanState *node,
 								 node->iss_Instrument,
 								 node->iss_NumScanKeys,
 								 node->iss_NumOrderByKeys,
-								 piscan);
+								 piscan,
+								 ScanRelIsReadOnly(&node->ss) ?
+								 SO_HINT_REL_READ_ONLY : SO_NONE);
 
 	/*
 	 * If no run-time keys to calculate or they are ready, go ahead and pass

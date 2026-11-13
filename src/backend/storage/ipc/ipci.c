@@ -250,15 +250,9 @@ static void
 CreateOrAttachShmemStructs(void)
 {
 	/*
-	 * Now initialize LWLocks, which do shared memory allocation and are
-	 * needed for InitShmemIndex.
+	 * Set up LWLocks.  They are needed by most other subsystems.
 	 */
-	CreateLWLocks();
-
-	/*
-	 * Set up shmem.c index hashtable
-	 */
-	InitShmemIndex();
+	LWLockShmemInit();
 
 	dsm_shmem_init();
 	DSMRegistryShmemInit();

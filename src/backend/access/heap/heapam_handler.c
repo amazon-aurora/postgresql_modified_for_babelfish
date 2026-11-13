@@ -82,11 +82,12 @@ heapam_slot_callbacks(Relation relation)
  */
 
 static IndexFetchTableData *
-heapam_index_fetch_begin(Relation rel)
+heapam_index_fetch_begin(Relation rel, uint32 flags)
 {
 	IndexFetchHeapData *hscan = palloc0_object(IndexFetchHeapData);
 
 	hscan->xs_base.rel = rel;
+	hscan->xs_base.flags = flags;
 	hscan->xs_cbuf = InvalidBuffer;
 	hscan->xs_vmbuffer = InvalidBuffer;
 
@@ -149,7 +150,8 @@ heapam_index_fetch_tuple(struct IndexFetchTableData *scan,
 		 */
 		if (prev_buf != hscan->xs_cbuf)
 			heap_page_prune_opt(hscan->xs_base.rel, hscan->xs_cbuf,
-								&hscan->xs_vmbuffer);
+								&hscan->xs_vmbuffer,
+								hscan->xs_base.flags & SO_HINT_REL_READ_ONLY);
 	}
 
 	/* Obtain share-lock on the buffer so we can examine visibility */
@@ -252,7 +254,7 @@ heapam_tuple_satisfies_snapshot(Relation rel, TupleTableSlot *slot,
 
 static void
 heapam_tuple_insert(Relation relation, TupleTableSlot *slot, CommandId cid,
-					int options, BulkInsertState bistate)
+					uint32 options, BulkInsertState bistate)
 {
 	bool		shouldFree = true;
 	HeapTuple	tuple = ExecFetchSlotHeapTuple(slot, true, &shouldFree);
@@ -271,7 +273,7 @@ heapam_tuple_insert(Relation relation, TupleTableSlot *slot, CommandId cid,
 
 static void
 heapam_tuple_insert_speculative(Relation relation, TupleTableSlot *slot,
-								CommandId cid, int options,
+								CommandId cid, uint32 options,
 								BulkInsertState bistate, uint32 specToken)
 {
 	bool		shouldFree = true;
@@ -763,7 +765,8 @@ heapam_relation_copy_for_cluster(Relation OldHeap, Relation NewHeap,
 
 		tableScan = NULL;
 		heapScan = NULL;
-		indexScan = index_beginscan(OldHeap, OldIndex, SnapshotAny, NULL, 0, 0);
+		indexScan = index_beginscan(OldHeap, OldIndex, SnapshotAny, NULL, 0, 0,
+									SO_NONE);
 		index_rescan(indexScan, NULL, 0, NULL, 0);
 	}
 	else
@@ -772,7 +775,8 @@ heapam_relation_copy_for_cluster(Relation OldHeap, Relation NewHeap,
 		pgstat_progress_update_param(PROGRESS_REPACK_PHASE,
 									 PROGRESS_REPACK_PHASE_SEQ_SCAN_HEAP);
 
-		tableScan = table_beginscan(OldHeap, SnapshotAny, 0, (ScanKey) NULL);
+		tableScan = table_beginscan(OldHeap, SnapshotAny, 0, (ScanKey) NULL,
+									SO_NONE);
 		heapScan = (HeapScanDesc) tableScan;
 		indexScan = NULL;
 
@@ -2542,7 +2546,8 @@ BitmapHeapScanNextBlock(TableScanDesc scan,
 	/*
 	 * Prune and repair fragmentation for the whole page, if possible.
 	 */
-	heap_page_prune_opt(scan->rs_rd, buffer, &hscan->rs_vmbuffer);
+	heap_page_prune_opt(scan->rs_rd, buffer, &hscan->rs_vmbuffer,
+						scan->rs_flags & SO_HINT_REL_READ_ONLY);
 
 	/*
 	 * We must hold share lock on the buffer content while examining tuple
