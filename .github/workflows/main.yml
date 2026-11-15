@@ -7,7 +7,9 @@ on:
 jobs:
   build-and-run-tests:
     name: Build and run tests
-    runs-on: ubuntu-latest
+    # Pinned: newer images ship a GCC with -Wmissing-variable-declarations,
+    # which fails this -Werror build on existing hook globals.
+    runs-on: ubuntu-24.04
     steps:
       - name: clone-repository
         uses: actions/checkout@v2
